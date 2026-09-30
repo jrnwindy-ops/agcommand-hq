@@ -2,6 +2,6 @@
    public identifier; row-level security, an approved-accounts list and
    two-step verification protect the data. */
 window.HQ_CONFIG = {
-  url: '__HQ_SUPABASE_URL__',
-  key: '__HQ_PUBLISHABLE_KEY__'
+  url: 'https://ixvuttzhwphrypjvoitv.supabase.co',
+  key: 'sb_publishable_Cw4QYO5w7a6zhhfi_HVSWQ_r8kNeUa6'
 };

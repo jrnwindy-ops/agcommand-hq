@@ -224,7 +224,16 @@ drop policy if exists hq_admin_update on public.tenants;
 create policy hq_admin_update on public.tenants for update to authenticated using ((select public.hq_is_admin())) with check ((select public.hq_is_admin()));
 drop policy if exists hq_admin_plan_write on public.pricing_plans;
 create policy hq_admin_plan_write on public.pricing_plans for all to authenticated using ((select public.hq_is_admin())) with check ((select public.hq_is_admin()));
+-- Explicit table privileges (newer projects do not grant these by default).
+grant select on public.tenants, public.pricing_plans, public.collections,
+                public.tenant_snapshots, public.metric_values to authenticated;
+grant insert, update on public.tenants to authenticated;
+grant insert, update, delete on public.pricing_plans to authenticated;
+grant all on public.tenants, public.pricing_plans, public.collections,
+             public.tenant_snapshots, public.metric_values to service_role;
+grant usage, select on sequence public.tenant_seq to service_role;
 revoke all on public.tenant_overview from anon;
+grant select on public.tenant_overview to service_role;
 grant select on public.tenant_overview to authenticated;
 grant usage, select on sequence public.tenant_seq to authenticated;
 alter default privileges in schema public revoke all on tables from anon;
