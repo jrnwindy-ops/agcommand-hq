@@ -31,22 +31,6 @@
   </form>
 </main>
 
-<main id="screen-mfa" class="auth" hidden>
-  <form class="card auth-card" id="form-mfa">
-    <h1>Two-step verification</h1>
-    <div id="mfa-enroll" hidden>
-      <p class="muted">HQ requires an authenticator app. Scan this code with Google Authenticator, 1Password, Authy or similar, then enter the 6-digit code.</p>
-      <div class="qr" id="mfa-qr"></div>
-      <p class="muted small">Can't scan? Enter this key: <code id="mfa-secret"></code></p>
-    </div>
-    <p class="muted" id="mfa-verify-note" hidden>Enter the 6-digit code from your authenticator app.</p>
-    <label>Code<input id="in-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
-    <div class="msg" id="mfa-msg" role="alert"></div>
-    <button class="btn primary" type="submit">Verify</button>
-    <button class="btn ghost" type="button" id="btn-mfa-cancel">Sign out</button>
-  </form>
-</main>
-
 <main id="screen-denied" class="auth" hidden>
   <div class="card auth-card">
     <h1>Not authorized</h1>

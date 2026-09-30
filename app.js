@@ -1,9 +1,8 @@
 /* AgCommand HQ — owner console.
    Reads only the HQ database: the tenant registry and the aggregate metrics
    each customer database reports. It never connects to a customer database
-   and never sees a customer record. Access: an approved HQ account, signed in
-   with two-step verification (the database enforces it; this file only
-   follows along). */
+   and never sees a customer record. Access: an approved HQ account (the database
+   enforces it; this file only follows along). */
 (function(){
 'use strict';
 const C = window.HQ_CONFIG || {};
@@ -23,8 +22,8 @@ const when = (iso) => {
 const stamp = (iso) => iso ? new Date(iso).toLocaleString() : '—';
 function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 3200); }
 function show(screen){
-  ['screen-signin','screen-mfa','screen-denied','screen-app'].forEach(s => $(s).hidden = s !== screen);
-  $('top-right').hidden = !(screen === 'screen-app' || screen === 'screen-denied' || screen === 'screen-mfa');
+  ['screen-signin','screen-denied','screen-app'].forEach(s => $(s).hidden = s !== screen);
+  $('top-right').hidden = !(screen === 'screen-app' || screen === 'screen-denied');
 }
 
 if(!window.supabase || !C.url || /__HQ_/.test(C.url)){
@@ -34,14 +33,12 @@ if(!window.supabase || !C.url || /__HQ_/.test(C.url)){
 const sb = window.supabase.createClient(C.url, C.key, {auth: {persistSession: true, autoRefreshToken: true}});
 let STATE = {rows: [], collectors: {}, session: null};
 
-// ── sign-in and two-step verification ───────────────────────────────────────
+// ── sign-in ─────────────────────────────────────────────────────────────────
 async function route(){
   const {data: {session}} = await sb.auth.getSession();
   STATE.session = session;
   if(!session){ show('screen-signin'); setTimeout(() => $('in-email').focus(), 30); return; }
   $('who').textContent = session.user && session.user.email || '';
-  const {data: aal} = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-  if(!aal || aal.currentLevel !== 'aal2'){ await startMfa(); return; }
   const {data: st, error} = await sb.rpc('hq_account_status');
   if(error || !st || !st.approved){ show('screen-denied'); return; }
   show('screen-app');
@@ -55,38 +52,8 @@ $('form-signin').addEventListener('submit', async (e) => {
   if(error){ $('signin-msg').textContent = /fetch|network/i.test(error.message) ? 'Could not reach the server.' : 'That email or password is not right.'; return; }
   route();
 });
-let MFA = {factorId: null};
-async function startMfa(){
-  show('screen-mfa'); $('mfa-msg').textContent = ''; $('in-code').value = '';
-  const {data, error} = await sb.auth.mfa.listFactors();
-  if(error){ $('mfa-msg').textContent = 'Could not load verification: ' + error.message; return; }
-  const verified = (data.totp || []).filter(f => f.status === 'verified');
-  if(verified.length){
-    MFA.factorId = verified[0].id;
-    $('mfa-enroll').hidden = true; $('mfa-verify-note').hidden = false;
-  } else {
-    /* A half-finished enrolment from an earlier visit blocks a new one. */
-    for(const f of (data.all || []).filter(f => f.status !== 'verified')) await sb.auth.mfa.unenroll({factorId: f.id});
-    const {data: en, error: e2} = await sb.auth.mfa.enroll({factorType: 'totp', friendlyName: 'AgCommand HQ'});
-    if(e2){ $('mfa-msg').textContent = 'Could not start set-up: ' + e2.message; return; }
-    MFA.factorId = en.id;
-    const img = document.createElement('img'); img.alt = 'Scan with your authenticator app'; img.src = en.totp.qr_code;
-    $('mfa-qr').replaceChildren(img); $('mfa-secret').textContent = en.totp.secret;
-    $('mfa-enroll').hidden = false; $('mfa-verify-note').hidden = true;
-  }
-  setTimeout(() => $('in-code').focus(), 30);
-}
-$('form-mfa').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const code = $('in-code').value.replace(/\D/g, '');
-  if(code.length !== 6){ $('mfa-msg').textContent = 'Enter the 6-digit code.'; return; }
-  const {error} = await sb.auth.mfa.challengeAndVerify({factorId: MFA.factorId, code});
-  if(error){ $('mfa-msg').textContent = 'That code did not work. Try the current one.'; $('in-code').value = ''; return; }
-  route();
-});
 const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null}; closeDrawer(); route(); };
 $('btn-signout').addEventListener('click', signOut);
-$('btn-mfa-cancel').addEventListener('click', signOut);
 $('btn-denied-out').addEventListener('click', signOut);
 $('btn-refresh').addEventListener('click', () => load());
 

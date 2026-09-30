@@ -10,8 +10,8 @@ Supabase project.
 * HQ holds the tenant registry, pricing, and the **aggregate** metrics each
   customer database reports through `agc_client_stats()` — totals and counts,
   never customer records.
-* Only approved HQ accounts can read it, and only after **two-step
-  verification** (the database policies require `aal2`).
+* Only approved HQ accounts can read it (an allowlist in `hq_private.admins`,
+  enforced by the database policies). Public sign-up is turned off.
 * The console never connects to a customer database. The collector (a
   Supabase Edge Function in the HQ project) does, with a per-client token
   whose hash is all the customer database keeps.

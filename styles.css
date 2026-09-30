@@ -31,7 +31,6 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-o
 .btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-on)}.btn.ghost{background:transparent}
 .btn:disabled{opacity:.6;cursor:default}
 .msg{min-height:18px;font-size:13px;color:var(--bad);font-weight:600}
-.qr{display:flex;justify-content:center;background:#fff;border-radius:8px;padding:10px}.qr img{width:180px;height:180px}
 code{background:var(--surf2);border:1px solid var(--bd);padding:1px 5px;border-radius:5px;word-break:break-all}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
 .tile{background:var(--surf);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;box-shadow:var(--sh)}

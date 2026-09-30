@@ -55,11 +55,7 @@ const srv = http.createServer((q, r) => {
   await p.fill('#in-email', 'owner@x.com'); await p.fill('#in-pass', 'wrong'); await p.click('#btn-signin'); await p.waitForTimeout(500);
   L('  wrong pw:', await p.textContent('#signin-msg'));
   await p.fill('#in-pass', 'right'); await p.click('#btn-signin'); await p.waitForTimeout(900);
-  L('2 mfa enroll shown:', await p.isVisible('#mfa-enroll'), 'secret:', await p.textContent('#mfa-secret'), 'qr img:', await p.$eval('#mfa-qr img', i => i.src.slice(0, 20)).catch(() => 'none'));
-  L('  dashboard hidden before 2FA:', !(await p.isVisible('#screen-app')));
-  await p.fill('#in-code', '000000'); await p.click('#form-mfa button[type=submit]'); await p.waitForTimeout(600);
-  L('  wrong code:', await p.textContent('#mfa-msg'));
-  await p.fill('#in-code', '123456'); await p.click('#form-mfa button[type=submit]'); await p.waitForTimeout(1200);
+  L('2 no code screen:', !(await p.$('#screen-mfa')));
   L('3 dashboard:', await p.isVisible('#screen-app'));
   L('  tiles:', (await p.innerText('#tiles')).replace(/\n+/g, ' | '));
   L('  users note:', await p.textContent('#users-note'));

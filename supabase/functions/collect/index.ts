@@ -8,7 +8,7 @@
 // Invoked two ways:
 //   • nightly by pg_cron, with the x-hq-cron secret (see 0002_schedule.sql);
 //   • "Collect now" in the console, with the signed-in owner's session, which
-//     must be an approved HQ account at aal2 (two-step verified).
+//     must be an approved HQ account.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
