@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>AgCommand HQ</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" defer></script>
+<script src="config.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark">◆</span> AgCommand <b>HQ</b></div>
+  <div class="top-right" id="top-right" hidden>
+    <span class="who" id="who"></span>
+    <button class="btn ghost" id="btn-refresh" type="button">Refresh</button>
+    <button class="btn ghost" id="btn-signout" type="button">Sign out</button>
+  </div>
+</header>
+
+<main id="screen-signin" class="auth" hidden>
+  <form class="card auth-card" id="form-signin" autocomplete="on">
+    <h1>AgCommand HQ</h1>
+    <p class="muted">Owner console. Approved accounts only.</p>
+    <label>Email<input id="in-email" type="email" autocomplete="username" required></label>
+    <label>Password<input id="in-pass" type="password" autocomplete="current-password" required></label>
+    <div class="msg" id="signin-msg" role="alert"></div>
+    <button class="btn primary" type="submit" id="btn-signin">Sign in</button>
+  </form>
+</main>
+
+<main id="screen-mfa" class="auth" hidden>
+  <form class="card auth-card" id="form-mfa">
+    <h1>Two-step verification</h1>
+    <div id="mfa-enroll" hidden>
+      <p class="muted">HQ requires an authenticator app. Scan this code with Google Authenticator, 1Password, Authy or similar, then enter the 6-digit code.</p>
+      <div class="qr" id="mfa-qr"></div>
+      <p class="muted small">Can't scan? Enter this key: <code id="mfa-secret"></code></p>
+    </div>
+    <p class="muted" id="mfa-verify-note" hidden>Enter the 6-digit code from your authenticator app.</p>
+    <label>Code<input id="in-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+    <div class="msg" id="mfa-msg" role="alert"></div>
+    <button class="btn primary" type="submit">Verify</button>
+    <button class="btn ghost" type="button" id="btn-mfa-cancel">Sign out</button>
+  </form>
+</main>
+
+<main id="screen-denied" class="auth" hidden>
+  <div class="card auth-card">
+    <h1>Not authorized</h1>
+    <p class="muted">This account is not approved for AgCommand HQ.</p>
+    <button class="btn ghost" type="button" id="btn-denied-out">Sign out</button>
+  </div>
+</main>
+
+<main id="screen-app" hidden>
+  <section class="today">
+    <h2>AgCommand Today</h2>
+    <div class="tiles" id="tiles"></div>
+    <p class="note" id="users-note">Individual user tracking is not yet enabled — clients sign in with a shared account, so user counts are not shown.</p>
+  </section>
+
+  <section class="clients">
+    <div class="section-head">
+      <h2>Clients</h2>
+      <div class="head-actions">
+        <button class="btn ghost" id="btn-collect-all" type="button">Collect all now</button>
+        <button class="btn primary" id="btn-add" type="button">+ Add client</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="grid" id="client-table">
+        <thead><tr>
+          <th>Client</th><th>Status</th><th class="n">Acres</th><th class="n">Blocks</th>
+          <th>Last activity</th><th class="n">30-day activity</th><th class="n">Monthly revenue</th><th>System health</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted small" id="load-msg"></p>
+  </section>
+</main>
+
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-inner">
+    <button class="close" id="drawer-close" type="button" aria-label="Close">✕</button>
+    <div id="drawer-body"></div>
+  </div>
+</aside>
+<div class="toast" id="toast" role="status"></div>
+</body>
+</html>

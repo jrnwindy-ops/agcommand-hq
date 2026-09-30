@@ -1,0 +1,5 @@
+# Setup scripts, database files and tests are for the operator, not the site.
+/setup/*     /404  404!
+/supabase/*  /404  404!
+/tests/*     /404  404!
+/README.md   /404  404!
