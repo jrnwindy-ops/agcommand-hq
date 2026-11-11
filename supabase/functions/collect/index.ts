@@ -23,6 +23,28 @@ const json = (status: number, body: unknown) =>
 const farmDay = (d = new Date()) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(d);
 
+type Target = { tenant_id: string; endpoint: string; publishable_key: string; token: string };
+// deno-lint-ignore no-explicit-any
+async function collectIssues(admin: any, t: Target) {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15000);
+    const res = await fetch(`${t.endpoint}/rest/v1/rpc/agc_support_stats`, {
+      method: "POST",
+      headers: { apikey: t.publishable_key, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ p_token: t.token, p_tenant: t.tenant_id, p_days: 90 }),
+      signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) { console.log("reported issues skipped", t.tenant_id, res.status); return; }
+    const payload = await res.json();
+    if (!payload || payload.kind !== "reported_issues") return;
+    await admin.from("reported_issues").upsert({ tenant_id: t.tenant_id, collected_at: new Date().toISOString(), payload });
+  } catch (e) {
+    console.log("reported issues skipped", t.tenant_id, String((e as Error)?.message || e).slice(0, 200));
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST") return json(405, { error: "POST only" });
@@ -99,6 +121,11 @@ Deno.serve(async (req) => {
       }
       if (rows.length) await admin.from("metric_values").upsert(rows, { onConflict: "tenant_id,day,metric_key" });
     }
+
+    // Kip Health: reported issues (counts and report numbers only). A customer
+    // database without agc_support_stats yet is skipped; it never fails the
+    // collection.
+    if (status === "ok") await collectIssues(admin, t);
 
     const row = {
       tenant_id: t.tenant_id, trigger, started_at: started.toISOString(), finished_at: new Date().toISOString(),

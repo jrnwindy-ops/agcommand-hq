@@ -25,7 +25,9 @@ Supabase project.
 | `_headers`, `_redirects`, `robots.txt` | Strict CSP, no framing, no indexing; operator files not served |
 | `supabase/migrations/0001_hq_core.sql` | Tenants (permanent `TNT-####` IDs), pricing plans, collections, snapshots, metric time series, overview view, access rules |
 | `supabase/migrations/0002_schedule.sql` | Nightly collection at 03:15 Pacific (pg_cron + pg_net) |
-| `supabase/functions/collect/index.ts` | The collector |
+| `supabase/functions/collect/index.ts` | The collector (aggregate metrics, plus reported-issue counts) |
+| `supabase/migrations/0004_kip_health.sql` | `reported_issues`: the latest Kip Health counts per tenant |
+| `supabase/functions/support-status/index.ts` | Moves a reported issue to Being looked at / Fixed / Closed, with an optional note the person sees |
 | `setup/` | One-time configuration and how to connect a client database |
 | `tests/` | Console tests against a mocked backend |
 
@@ -51,3 +53,16 @@ schema change.
 
 Individual user sign-in is not enabled in the customer app yet (one shared
 account per client), so HQ does not show user counts.
+
+## Kip Health (reported issues)
+
+Problems people chose to report through Kip in the customer app. The collector
+calls `agc_support_stats(token, tenant)` on each customer database and stores
+counts by app version, category and status, plus each report's number, date and
+status. Never what the person wrote, their name or error text: the full report
+stays in the customer's database. These are user reports, shown apart from
+System health, which measures collection and app activity.
+
+Status changes go through the `support-status` function, which calls the
+customer database's `agc_support_set_status()` with the collector token; the
+person sees the status and note under My problem reports in the app.

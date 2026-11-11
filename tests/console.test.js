@@ -13,6 +13,12 @@ const ROWS = [
   {tenant_id:'TNT-0001', display_name:'Crown Farming, Inc.', status:'pilot', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:582.93, acres_planted:433.24, acres_billable:582.93, blocks:10, events_30d:81, last_activity:new Date(Date.now()-2*864e5).toISOString(), last_ok_at:new Date().toISOString(), last_attempt_at:new Date().toISOString(), last_status:'ok', schema_version:'2026.09.30.1', app_build:'2026-09-30 09:40', app_last_seen:new Date().toISOString(), price_breakdown:{amount:582.93, lines:[{qty:582.93, rate:1, amount:582.93}]}, mrr:0, health:'ok'},
   {tenant_id:'TNT-0002', display_name:'Test <b>Active</b>', status:'active', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:6487, acres_planted:6000, acres_billable:6487, blocks:90, events_30d:1842, last_activity:new Date().toISOString(), last_ok_at:new Date(Date.now()-3*864e5).toISOString(), last_attempt_at:new Date(Date.now()-3*864e5).toISOString(), last_status:'ok', price_breakdown:{amount:5743.5, lines:[{qty:4000,rate:1,amount:4000},{qty:2000,rate:.75,amount:1500},{qty:487,rate:.5,amount:243.5}]}, mrr:5743.5, health:'stale', monthly_minimum:500},
 ];
+const RID = '3f2a9c1e-1111-4222-8333-444455556666', RID2 = 'a1b2c3d4-0000-4000-8000-000000000001';
+const ISSUES = [{tenant_id:'TNT-0001', collected_at:new Date().toISOString(), payload:{kind:'reported_issues', organizations:[{tenant:'TNT-0001', total:2, open:1,
+  by_status:{new:1, fixed:1}, by_category:{save:1, sync:1}, by_build:{'2026-11-11 08:54':2},
+  reports:[{id:RID, created_at:new Date().toISOString(), build:'2026-11-11 08:54', category:'save', status:'new', emailed:false},
+           {id:RID2, created_at:new Date(Date.now()-864e5).toISOString(), build:'2026-11-11 08:54', category:'sync', status:'fixed', emailed:true}]}]}}];
+let statusCall = null;
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
   if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript'}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
@@ -46,6 +52,8 @@ const srv = http.createServer((q, r) => {
     if(pth === '/rest/v1/tenant_snapshots') return ok(route, {collected_at:new Date().toISOString(), payload:{metrics:{'acres.managed':582.93,'blocks.total':10}, modules:{check_ins:{total:20,last_30d:14,last_at:new Date().toISOString()}}}});
     if(pth === '/rest/v1/tenants' && m === 'PATCH') return ok(route, null, 204);
     if(pth === '/rest/v1/tenants' && m === 'POST') return ok(route, {tenant_id:'TNT-0003'}, 201);
+    if(pth === '/rest/v1/reported_issues') return ok(route, ISSUES);
+    if(pth === '/functions/v1/support-status'){ statusCall = body; return ok(route, {updated: 1}); }
     if(pth === '/functions/v1/collect') return ok(route, {collected: 1, results:[{tenant_id: body && body.tenant_id || 'all', status:'ok'}]});
     return ok(route, {error:'unmocked ' + pth}, 404);
   });
@@ -73,6 +81,17 @@ const srv = http.createServer((q, r) => {
   await p.fill('#d-new [name=display_name]', 'M&R Farms'); await p.click('#d-new button[type=submit]'); await p.waitForTimeout(800);
   L('5 add toast:', await p.textContent('#toast'));
   L('  calls:', calls.filter(c => !/GET \/rest\/v1\/(tenant_overview|pricing_plans|collections|tenant_snapshots)|rpc\/hq_collector_status|rpc\/hq_account_status|auth\/v1\/user/.test(c)).join(' ; '));
+  // Kip Health
+  await p.click('#drawer-close');
+  L('K1 issue tiles:', (await p.innerText('#issue-tiles')).replace(/\n+/g, ' | '));
+  L('K2 by client:', (await p.innerText('#issue-clients tbody')).replace(/\t/g, ' · ').replace(/\n/g, ' // '));
+  L('K3 open reports:', (await p.innerText('#issue-reports tbody')).replace(/\t/g, ' · ').replace(/\n/g, ' // '));
+  await p.click('#issue-filter [data-f=all]'); await p.waitForTimeout(100);
+  L('K4 all reports rows:', await p.$$eval('#issue-reports tbody tr[data-r]', r => r.length));
+  await p.click(`#issue-reports tr[data-r="${RID}"]`); await p.waitForTimeout(300);
+  L('K5 report drawer:', (await p.innerText('#drawer-body')).replace(/\s+/g, ' ').slice(0, 400));
+  await p.fill('#i-note', 'Fixed in today\'s update.'); await p.click('#drawer-body [data-s=fixed]'); await p.waitForTimeout(700);
+  L('K6 status call:', JSON.stringify(statusCall), 'toast:', await p.textContent('#toast'), 'drawer closed:', await p.isHidden('#drawer'));
   // reload keeps the verified session
   await p.reload(); await p.waitForTimeout(1200); L('6 reload → dashboard:', await p.isVisible('#screen-app'));
   // not approved

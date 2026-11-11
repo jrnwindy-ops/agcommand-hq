@@ -65,6 +65,34 @@
     </div>
     <p class="muted small" id="load-msg"></p>
   </section>
+
+  <section class="issues" id="kip-health">
+    <div class="section-head">
+      <h2>Kip Health · reported issues</h2>
+      <div class="head-actions"><button class="btn ghost" id="btn-issues-check" type="button">Check for new reports</button></div>
+    </div>
+    <p class="note issues-note">Problems people chose to report through Kip in the app, last 90 days. These are user reports, not measured system failures (see System health above). HQ gets counts and report numbers only; what the person wrote stays in their company's AgCommand.</p>
+    <div class="tiles" id="issue-tiles"></div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table class="grid" id="issue-clients">
+        <thead><tr><th>Client</th><th class="n">Reported</th><th class="n">Open</th><th>Categories</th><th>App versions</th><th>Counts from</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="section-head" style="margin-top:18px">
+      <h3 class="h3">Reports</h3>
+      <div class="chips" id="issue-filter">
+        <button type="button" class="chip on" data-f="open">Open</button>
+        <button type="button" class="chip" data-f="all">All</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="grid" id="issue-reports">
+        <thead><tr><th>Report</th><th>Client</th><th>Sent</th><th>App version</th><th>Category</th><th>Status</th><th>Email</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <aside class="drawer" id="drawer" hidden>

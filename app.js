@@ -31,7 +31,7 @@ if(!window.supabase || !C.url || /__HQ_/.test(C.url)){
   return;
 }
 const sb = window.supabase.createClient(C.url, C.key, {auth: {persistSession: true, autoRefreshToken: true}});
-let STATE = {rows: [], collectors: {}, session: null};
+let STATE = {rows: [], collectors: {}, issues: [], session: null};
 
 // ── sign-in ─────────────────────────────────────────────────────────────────
 async function route(){
@@ -52,7 +52,7 @@ $('form-signin').addEventListener('submit', async (e) => {
   if(error){ $('signin-msg').textContent = /fetch|network/i.test(error.message) ? 'Could not reach the server.' : 'That email or password is not right.'; return; }
   route();
 });
-const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null}; closeDrawer(); route(); };
+const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, issues: [], session: null}; closeDrawer(); route(); };
 $('btn-signout').addEventListener('click', signOut);
 $('btn-denied-out').addEventListener('click', signOut);
 $('btn-refresh').addEventListener('click', () => load());
@@ -60,15 +60,17 @@ $('btn-refresh').addEventListener('click', () => load());
 // ── data ────────────────────────────────────────────────────────────────────
 async function load(){
   $('load-msg').textContent = 'Loading…';
-  const [ov, cs] = await Promise.all([
+  const [ov, cs, ri] = await Promise.all([
     sb.from('tenant_overview').select('*').order('tenant_id'),
-    sb.rpc('hq_collector_status')
+    sb.rpc('hq_collector_status'),
+    sb.from('reported_issues').select('tenant_id,collected_at,payload')
   ]);
   if(ov.error){ $('load-msg').textContent = 'Could not load: ' + ov.error.message; return; }
   STATE.rows = ov.data || [];
   STATE.collectors = Object.fromEntries((cs.data || []).map(c => [c.tenant_id, c]));
+  STATE.issues = ri.error ? null : (ri.data || []);
   $('load-msg').textContent = 'Updated ' + new Date().toLocaleTimeString() + '. Metrics are collected nightly at 3:15 am Pacific.';
-  renderToday(); renderTable();
+  renderToday(); renderTable(); renderIssues();
 }
 
 const STATUS = {prospect:['Prospect','p-idle'], onboarding:['Onboarding','p-idle'], pilot:['Pilot','p-warn'], active:['Active','p-ok'], paused:['Paused','p-warn'], churned:['Churned','p-bad']};
@@ -240,6 +242,103 @@ async function collect(tenantId){
   await load(); if(tenantId) openClient(tenantId);
 }
 $('btn-collect-all').addEventListener('click', () => collect(null));
+
+// ── Kip Health: reported issues ─────────────────────────────────────────────
+// User-submitted problem reports, as counts and report numbers. Not system
+// failures, and never what the person wrote.
+const CATEGORY = {sync:'Records not sending', save:'Save refused', crash:'App error', signin:'Sign-in', update:'App update', permissions:'Can’t see or do something', other:'Other'};
+const ISTATUS = {new:['Received','p-warn'], seen:['Being looked at','p-idle'], fixed:['Fixed','p-ok'], closed:['Closed','p-idle']};
+const shortId = (id) => '#' + String(id || '').slice(0, 8).toUpperCase();
+let issueFilter = 'open';
+function issueOrgs(){
+  const out = [];
+  for(const r of STATE.issues || []){
+    for(const o of (r.payload && r.payload.organizations) || []){
+      out.push({...o, tenant_id: r.tenant_id, collected_at: r.collected_at});
+    }
+  }
+  return out;
+}
+function nameOf(tid){ const r = STATE.rows.find(x => x.tenant_id === tid); return r ? r.display_name : tid; }
+const countList = (obj, label) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="cat">${esc(label ? label(k) : k)} · ${num(n)}</span>`).join('') || '<span class="muted">—</span>';
+function renderIssues(){
+  const tb = document.querySelector('#issue-clients tbody'), rb = document.querySelector('#issue-reports tbody');
+  if(STATE.issues === null){
+    $('issue-tiles').innerHTML = '';
+    tb.innerHTML = `<tr><td colspan="6" class="muted">Reported issues could not be loaded.</td></tr>`; rb.innerHTML = ''; return;
+  }
+  const orgs = issueOrgs();
+  const all = orgs.flatMap(o => (o.reports || []).map(r => ({...r, tenant_id: o.tenant_id})));
+  const by = (s) => all.filter(r => r.status === s).length;
+  const tiles = [
+    ['Reported', num(all.length), 'Last 90 days, all clients'],
+    ['Open', num(by('new') + by('seen')), `${num(by('new'))} received · ${num(by('seen'))} being looked at`],
+    ['Fixed', num(by('fixed')), 'Marked fixed'],
+    ['Closed', num(by('closed')), 'No further action'],
+  ];
+  $('issue-tiles').innerHTML = tiles.map(([l, v, s]) => `<div class="tile"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join('');
+  tb.innerHTML = orgs.length ? orgs.map(o => `<tr tabindex="0" data-t="${esc(o.tenant_id)}">
+      <td><b>${esc(nameOf(o.tenant_id))}</b><span class="id">${esc(o.tenant_id)}</span></td>
+      <td class="n">${num(o.total)}</td><td class="n">${num(o.open)}</td>
+      <td>${countList(o.by_category, k => CATEGORY[k] || k)}</td><td>${countList(o.by_build)}</td>
+      <td>${esc(when(o.collected_at))}</td></tr>`).join('')
+    : `<tr><td colspan="6" class="muted">No reported-issue counts yet. They arrive with each collection, for clients whose app has Kip's problem reports.</td></tr>`;
+  tb.querySelectorAll('tr[data-t]').forEach(tr => tr.addEventListener('click', () => openClient(tr.dataset.t)));
+  const shown = all.filter(r => issueFilter === 'all' || r.status === 'new' || r.status === 'seen')
+                   .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  rb.innerHTML = shown.length ? shown.map(r => `<tr tabindex="0" data-r="${esc(r.id)}" data-t="${esc(r.tenant_id)}">
+      <td class="mono">${esc(shortId(r.id))}</td><td>${esc(nameOf(r.tenant_id))}</td><td>${esc(stamp(r.created_at))}</td>
+      <td>${esc(r.build || '—')}</td><td>${esc(CATEGORY[r.category] || r.category || '—')}</td><td>${pill(ISTATUS, r.status)}</td>
+      <td>${r.emailed ? 'Sent' : '<span class="muted">Not sent</span>'}</td></tr>`).join('')
+    : `<tr><td colspan="7" class="muted">${issueFilter === 'open' ? 'No open reports.' : 'No reports in the last 90 days.'}</td></tr>`;
+  rb.querySelectorAll('tr[data-r]').forEach(tr => {
+    tr.addEventListener('click', () => openIssue(tr.dataset.t, tr.dataset.r));
+    tr.addEventListener('keydown', (e) => { if(e.key === 'Enter') openIssue(tr.dataset.t, tr.dataset.r); });
+  });
+}
+$('issue-filter').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if(!b) return;
+  issueFilter = b.dataset.f;
+  $('issue-filter').querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === b));
+  renderIssues();
+});
+$('btn-issues-check').addEventListener('click', () => collect(null));
+function openIssue(tid, rid){
+  const o = issueOrgs().find(x => x.tenant_id === tid);
+  const r = o && (o.reports || []).find(x => x.id === rid); if(!r) return;
+  const NEXT = [['seen','Being looked at'], ['fixed','Fixed'], ['closed','Closed'], ['new','Received (reopen)']].filter(([k]) => k !== r.status);
+  $('drawer-body').innerHTML =
+    `<h1>Report <span class="mono">${esc(shortId(r.id))}</span></h1><p class="muted">${esc(nameOf(tid))} · ${esc(tid)} · ${pill(ISTATUS, r.status)}</p>`+
+    `<div class="dsec"><dl class="kv">`+
+      `<dt>Sent</dt><dd>${esc(stamp(r.created_at))}</dd><dt>Category</dt><dd>${esc(CATEGORY[r.category] || r.category || '—')}</dd>`+
+      `<dt>App version</dt><dd>${esc(r.build || '—')}</dd><dt>Notification email</dt><dd>${r.emailed ? 'Sent' : 'Not sent'}</dd>`+
+      `<dt>Report id</dt><dd class="mono">${esc(r.id)}</dd></dl>`+
+      `<p class="small muted">What the person wrote and their phone's details are in the client's AgCommand, not here.</p></div>`+
+    `<div class="dsec"><h3>Change status</h3>`+
+      `<label class="full">Note the person will see in the app (optional)<textarea id="i-note" rows="3" maxlength="500" placeholder="e.g. Fixed in today's update. Pull down to refresh."></textarea></label>`+
+      `<div class="chips" style="margin-top:10px">${NEXT.map(([k, l]) => `<button type="button" class="chip" data-s="${k}">${esc(l)}</button>`).join('')}</div>`+
+      `<p class="small muted">The person sees the new status and your note under My problem reports.</p></div>`;
+  $('drawer').hidden = false;
+  $('drawer-body').querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
+    const note = $('i-note').value.trim();
+    $('drawer-body').querySelectorAll('[data-s]').forEach(x => x.disabled = true);
+    const ok = await setIssueStatus(tid, rid, b.dataset.s, note || null);
+    if(ok){ closeDrawer(); } else { $('drawer-body').querySelectorAll('[data-s]').forEach(x => x.disabled = false); }
+  }));
+}
+async function setIssueStatus(tid, rid, status, note){
+  const {data: {session}} = await sb.auth.getSession();
+  if(!session){ route(); return false; }
+  try {
+    const res = await fetch(C.url + '/functions/v1/support-status', {method: 'POST',
+      headers: {'Content-Type': 'application/json', apikey: C.key, Authorization: 'Bearer ' + session.access_token},
+      body: JSON.stringify({tenant_id: tid, report_id: rid, status, note})});
+    const out = await res.json().catch(() => ({}));
+    if(!res.ok){ toast('Not changed: ' + (out.error || res.status)); return false; }
+    toast(`${shortId(rid)} is now ${(ISTATUS[status] || [status])[0]}`);
+  } catch(err){ toast('Not changed: ' + err.message); return false; }
+  await load(); return true;
+}
 
 // ── add a client ───────────────────────────────────────────────────────────
 $('btn-add').addEventListener('click', async () => {
