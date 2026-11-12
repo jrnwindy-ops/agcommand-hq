@@ -23,6 +23,7 @@ Supabase project.
 |---|---|
 | `index.html`, `app.js`, `styles.css`, `config.js` | The console (static site) |
 | `sales.js` | The Sales tab: leads, follow-ups, activity log |
+| `logo.svg`, `apple-touch-icon.png`, `fonts/` | Logo and fonts from agcommand.net (fonts: SIL Open Font License, licenses in `fonts/`) |
 | `_headers`, `_redirects`, `robots.txt` | Strict CSP, no framing, no indexing; operator files not served |
 | `supabase/migrations/0001_hq_core.sql` | Tenants (permanent `TNT-####` IDs), pricing plans, collections, snapshots, metric time series, overview view, access rules |
 | `supabase/migrations/0002_schedule.sql` | Nightly collection at 03:15 Pacific (pg_cron + pg_net) |
@@ -72,6 +73,12 @@ account per client), so HQ does not show user counts.
 * **Numbers** (all leads, whatever the filters): open leads, pipeline per month,
   win rate (won ÷ (won + lost)), open leads with no next step, and counts by
   stage and by source.
+* **Demo booking**: each open lead has *Send booking link*. It opens the phone's
+  Messages or Mail app with a short, warm message (English or Spanish, by the
+  lead's language) and the booking link; nothing is sent from HQ. *Log it as
+  sent* records it and, for a new lead, moves it to Contacted and sets a check
+  in 3 days. The link and signature are `bookingUrl` and `bookingSigner` in
+  `config.js` (the link is public by design).
 * No lead or contact data is ever written to this repository. Tests use made-up names.
 
 ## Website demo requests

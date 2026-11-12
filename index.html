@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>AgCommand HQ</title>
+<meta name="theme-color" content="#152116">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preload" href="fonts/hanken-grotesk-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" defer></script>
 <script src="config.js" defer></script>
@@ -13,7 +17,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="mark">◆</span> AgCommand <b>HQ</b></div>
+  <div class="brand"><img class="mark" src="logo.svg" alt=""><span class="word">AgCommand</span><b>HQ</b></div>
   <div class="top-right" id="top-right" hidden>
     <span class="who" id="who"></span>
     <button class="btn ghost" id="btn-refresh" type="button">Refresh</button>
@@ -23,7 +27,8 @@
 
 <main id="screen-signin" class="auth" hidden>
   <form class="card auth-card" id="form-signin" autocomplete="on">
-    <h1>AgCommand HQ</h1>
+    <div class="auth-logo"><img src="logo.svg" alt=""><span class="word">AgCommand</span></div>
+    <h1>HQ</h1>
     <p class="muted">Owner console. Approved accounts only.</p>
     <label>Email<input id="in-email" type="email" autocomplete="username" required></label>
     <label>Password<input id="in-pass" type="password" autocomplete="current-password" required></label>
