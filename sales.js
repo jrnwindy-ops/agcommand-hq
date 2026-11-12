@@ -302,7 +302,7 @@ async function openLead(id){
   const today = dayOf();
   H.openDrawer(
     `<h1>${esc(l.company)}</h1>` +
-    `<p class="muted">${esc(l.lead_id)} · <a href="#" class="lnk" id="l-client">${esc(l.tenant_id)}</a> · <span class="pill ${STAGE_PILL[l.stage] || 'p-idle'}">${esc(STAGE[l.stage] || l.stage)}</span>` +
+    `<p class="muted">${esc(l.lead_id)} · ${H.isSales() ? esc(l.tenant_id) : `<a href="#" class="lnk" id="l-client">${esc(l.tenant_id)}</a>`} · <span class="pill ${STAGE_PILL[l.stage] || 'p-idle'}">${esc(STAGE[l.stage] || l.stage)}</span>` +
       (l.language === 'es' ? ' · <span class="lang">Español</span>' : '') + `</p>` +
     // contact
     `<div class="dsec"><h3>Contact</h3>` +
@@ -481,7 +481,7 @@ async function updateLead(id, patch, msg){
 function wireLead(l){
   const id = l.lead_id, root = $('drawer-body');
   wireBooking(l, telHref(l.phone), okEmail(l.email) ? l.email : null);
-  $('l-client').addEventListener('click', (e) => { e.preventDefault(); H.openClient(l.tenant_id); });
+  if($('l-client')) $('l-client').addEventListener('click', (e) => { e.preventDefault(); H.openClient(l.tenant_id); });
 
   // stage: tap to move. Lost needs a reason first; Won turns the company into a client.
   root.querySelector('.chips[data-group="stage"]').addEventListener('chips', async (e) => {
@@ -489,7 +489,7 @@ function wireLead(l){
     if(to === l.stage){ $('l-lost').hidden = l.stage !== 'lost'; return; }
     if(to === 'lost'){ $('l-lost').hidden = false; return; }
     $('l-lost').hidden = true;
-    if(to === 'won' && !confirm(`Mark ${l.company} as won? ${l.tenant_status === 'prospect' ? 'It moves to Clients as Onboarding.' : ''}`)){ openLead(id); return; }
+    if(to === 'won' && !confirm(`Mark ${l.company} as won? ${l.tenant_status === 'prospect' ? 'It becomes a client (Onboarding).' : ''}`)){ openLead(id); return; }
     await updateLead(id, {stage: to}, to === 'won' ? 'Won — added to Clients as Onboarding' : 'Moved to ' + STAGE[to]);
     if(to === 'won') H.reload();
   });
