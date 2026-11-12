@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" defer></script>
 <script src="config.js" defer></script>
 <script src="app.js" defer></script>
+<script src="sales.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -40,6 +41,12 @@
 </main>
 
 <main id="screen-app" hidden>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button type="button" role="tab" class="tab" data-tab="clients" id="tabbtn-clients">Clients</button>
+    <button type="button" role="tab" class="tab" data-tab="sales" id="tabbtn-sales">Sales <span class="badge" id="sales-badge" hidden></span></button>
+  </nav>
+
+  <div id="tab-clients" role="tabpanel">
   <section class="today">
     <h2>AgCommand Today</h2>
     <div class="tiles" id="tiles"></div>
@@ -50,6 +57,7 @@
     <div class="section-head">
       <h2>Clients</h2>
       <div class="head-actions">
+        <button class="chip" id="chip-prospects" type="button" aria-pressed="false">Show prospects</button>
         <button class="btn ghost" id="btn-collect-all" type="button">Collect all now</button>
         <button class="btn primary" id="btn-add" type="button">+ Add client</button>
       </div>
@@ -65,6 +73,30 @@
     </div>
     <p class="muted small" id="load-msg"></p>
   </section>
+  </div>
+
+  <div id="tab-sales" role="tabpanel" hidden>
+    <section class="sales">
+      <div class="section-head">
+        <h2>Sales</h2>
+        <div class="head-actions"><button class="btn primary" id="btn-add-lead" type="button">+ Add lead</button></div>
+      </div>
+      <div class="followups" id="followups"></div>
+      <div class="tiles" id="sales-tiles"></div>
+      <details class="breakdown" id="sales-numbers">
+        <summary>By stage and source</summary>
+        <div class="bd-grid" id="sales-breakdown"></div>
+      </details>
+      <div id="web-inbox"></div>
+      <div class="filters">
+        <div class="chips" id="f-stage" aria-label="Stage"></div>
+        <div class="chips" id="f-source" aria-label="Source"></div>
+        <input type="search" id="f-search" placeholder="Search name, company, email or phone" aria-label="Search leads">
+      </div>
+      <div class="cards" id="lead-list"></div>
+      <p class="muted small" id="sales-msg"></p>
+    </section>
+  </div>
 </main>
 
 <aside class="drawer" id="drawer" hidden>

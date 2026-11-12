@@ -5,24 +5,29 @@ const { chromium } = require(process.env.PW || 'playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..'), SUPA = process.env.SUPABASE_JS;
 const HQ = 'https://hqtest.supabase.co';
+// The site's real security policy, from _headers, so anything it would block fails here too.
+const CSP = fs.readFileSync(path.join(ROOT, '_headers'), 'utf8').match(/Content-Security-Policy:\s*(.+)/)[1].trim();
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (aal) => b64({alg:'HS256',typ:'JWT'}) + '.' + b64({sub:'u1', aal, amr:[{method:'password',timestamp:1}], exp: Math.floor(Date.now()/1000)+3600, role:'authenticated', email:'owner@x.com'}) + '.sig';
 const user = (verified) => ({id:'u1', email:'owner@x.com', aud:'authenticated', role:'authenticated', factors: verified ? [{id:'f1', factor_type:'totp', status:'verified', friendly_name:'AgCommand HQ'}] : []});
 const session = (aal, verified) => ({access_token: jwt(aal), token_type:'bearer', expires_in:3600, expires_at: Math.floor(Date.now()/1000)+3600, refresh_token:'r', user: user(verified)});
 const ROWS = [
-  {tenant_id:'TNT-0001', display_name:'Crown Farming, Inc.', status:'pilot', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:582.93, acres_planted:433.24, acres_billable:582.93, blocks:10, events_30d:81, last_activity:new Date(Date.now()-2*864e5).toISOString(), last_ok_at:new Date().toISOString(), last_attempt_at:new Date().toISOString(), last_status:'ok', schema_version:'2026.09.30.1', app_build:'2026-09-30 09:40', app_last_seen:new Date().toISOString(), price_breakdown:{amount:582.93, lines:[{qty:582.93, rate:1, amount:582.93}]}, mrr:0, health:'ok'},
+  {tenant_id:'TNT-0001', display_name:'Sample Ranch Co.', status:'pilot', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:582.93, acres_planted:433.24, acres_billable:582.93, blocks:10, events_30d:81, last_activity:new Date(Date.now()-2*864e5).toISOString(), last_ok_at:new Date().toISOString(), last_attempt_at:new Date().toISOString(), last_status:'ok', schema_version:'2026.09.30.1', app_build:'2026-09-30 09:40', app_last_seen:new Date().toISOString(), price_breakdown:{amount:582.93, lines:[{qty:582.93, rate:1, amount:582.93}]}, mrr:0, health:'ok'},
   {tenant_id:'TNT-0002', display_name:'Test <b>Active</b>', status:'active', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:6487, acres_planted:6000, acres_billable:6487, blocks:90, events_30d:1842, last_activity:new Date().toISOString(), last_ok_at:new Date(Date.now()-3*864e5).toISOString(), last_attempt_at:new Date(Date.now()-3*864e5).toISOString(), last_status:'ok', price_breakdown:{amount:5743.5, lines:[{qty:4000,rate:1,amount:4000},{qty:2000,rate:.75,amount:1500},{qty:487,rate:.5,amount:243.5}]}, mrr:5743.5, health:'stale', monthly_minimum:500},
 ];
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
-  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript'}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
+  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
   const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
-  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html'}); r.end(fs.readFileSync(f));
+  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
 }).listen(8766);
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
   const errs = [], calls = []; let verified = false, approved = true;
   p.on('pageerror', e => errs.push(e.message));
+  await ctx.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sample || ''))); });
+  const cspSeen = [];
+  const grabCsp = async () => { try { cspSeen.push(...await p.evaluate(() => window.__csp.splice(0))); } catch(e){} };
   const CORS = {'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*','content-type':'application/json'};
   const ok = (route, body, status = 200) => route.fulfill({status, headers: CORS, body: JSON.stringify(body)});
   await ctx.route(/cdn\.jsdelivr\.net/, r => r.fulfill({body: fs.readFileSync(SUPA), contentType: 'application/javascript'}));
@@ -38,9 +43,10 @@ const srv = http.createServer((q, r) => {
     if(/\/auth\/v1\/factors\/f1\/verify/.test(pth)){ if(body.code !== '123456') return ok(route, {error:'invalid', msg:'Invalid TOTP code'}, 422); verified = true; return ok(route, session('aal2', true)); }
     if(pth === '/auth/v1/logout') return route.fulfill({status: 204, headers: CORS});
     if(pth === '/rest/v1/rpc/hq_account_status') return ok(route, {approved, aal: 'aal2'});
-    if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, [{tenant_id:'TNT-0001', endpoint:'https://skwayumhqvlbjonxpsfy.supabase.co', enabled:true}]);
+    if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, [{tenant_id:'TNT-0001', endpoint:'https://clienttest.supabase.co', enabled:true}]);
     if(pth === '/rest/v1/rpc/hq_set_collector') return ok(route, null);
     if(pth === '/rest/v1/tenant_overview') return ok(route, ROWS);
+    if(pth === '/rest/v1/crm_lead_overview') return ok(route, []);
     if(pth === '/rest/v1/pricing_plans') return ok(route, [{plan_id:'ACRE-TIER-2026', name:'Per acre per month — graduated', tiers:[]}]);
     if(pth === '/rest/v1/collections') return ok(route, [{started_at:new Date().toISOString(), trigger:'cron', status:'ok', schema_version:'2026.09.30.1', app_build:'b1'}, {started_at:new Date(Date.now()-864e5).toISOString(), trigger:'manual', status:'error', http_status:401, error:'not authorized'}]);
     if(pth === '/rest/v1/tenant_snapshots') return ok(route, {collected_at:new Date().toISOString(), payload:{metrics:{'acres.managed':582.93,'blocks.total':10}, modules:{check_ins:{total:20,last_30d:14,last_at:new Date().toISOString()}}}});
@@ -74,11 +80,12 @@ const srv = http.createServer((q, r) => {
   L('5 add toast:', await p.textContent('#toast'));
   L('  calls:', calls.filter(c => !/GET \/rest\/v1\/(tenant_overview|pricing_plans|collections|tenant_snapshots)|rpc\/hq_collector_status|rpc\/hq_account_status|auth\/v1\/user/.test(c)).join(' ; '));
   // reload keeps the verified session
-  await p.reload(); await p.waitForTimeout(1200); L('6 reload → dashboard:', await p.isVisible('#screen-app'));
+  await grabCsp(); await p.reload(); await p.waitForTimeout(1200); L('6 reload → dashboard:', await p.isVisible('#screen-app'));
   // not approved
   approved = false; await p.reload(); await p.waitForTimeout(1200); L('7 not approved → denied:', await p.isVisible('#screen-denied'), 'app hidden:', !(await p.isVisible('#screen-app')));
   await p.click('#btn-denied-out'); await p.waitForTimeout(800); L('8 signed out → sign-in:', await p.isVisible('#form-signin'));
   // phone width
   approved = true; await p.setViewportSize({width: 390, height: 844});
+  L('csp blocked', JSON.stringify(cspSeen));
   L('pageerrors', JSON.stringify(errs)); await b.close(); srv.close();
 })();

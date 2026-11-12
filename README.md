@@ -22,10 +22,14 @@ Supabase project.
 | Path | What |
 |---|---|
 | `index.html`, `app.js`, `styles.css`, `config.js` | The console (static site) |
+| `sales.js` | The Sales tab: leads, follow-ups, activity log |
 | `_headers`, `_redirects`, `robots.txt` | Strict CSP, no framing, no indexing; operator files not served |
 | `supabase/migrations/0001_hq_core.sql` | Tenants (permanent `TNT-####` IDs), pricing plans, collections, snapshots, metric time series, overview view, access rules |
 | `supabase/migrations/0002_schedule.sql` | Nightly collection at 03:15 Pacific (pg_cron + pg_net) |
+| `supabase/migrations/0004_crm.sql` | Sales CRM: leads (`LD-####`), activity log, website intake |
+| `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
 | `supabase/functions/collect/index.ts` | The collector |
+| `supabase/functions/intake/` | Website demo requests (Netlify form webhook) → `crm_intake` |
 | `setup/` | One-time configuration and how to connect a client database |
 | `tests/` | Console tests against a mocked backend |
 
@@ -51,3 +55,53 @@ schema change.
 
 Individual user sign-in is not enabled in the customer app yet (one shared
 account per client), so HQ does not show user counts.
+
+## Sales
+
+* A lead's company is a row in `tenants` (status **Prospect**), so there is one
+  list of companies. Prospects are hidden on Clients unless "Show prospects" is on.
+* Marking a lead **Won** moves its company to **Onboarding**. **Lost** needs a reason.
+* Each stage change is logged automatically. Logging a call, email, text or meeting
+  on a **New** lead moves it to **Contacted**.
+* Overdue and due-today follow-ups count by the Pacific calendar day; the number
+  shows on the Sales tab.
+* **Proposal**: acres, pricing plan and an optional monthly minimum. The price is
+  worked out tier by tier, the same way as client revenue; the estimate is the
+  greater of the plan amount and the minimum. Before a proposal, leads carry a
+  rough estimate from the low end of their acre range (shown as "≈ … (rough)").
+* **Numbers** (all leads, whatever the filters): open leads, pipeline per month,
+  win rate (won ÷ (won + lost)), open leads with no next step, and counts by
+  stage and by source.
+* No lead or contact data is ever written to this repository. Tests use made-up names.
+
+## Website demo requests
+
+The website's `demo-request` form (Netlify Forms) notifies the `intake` Edge
+Function through an **outgoing webhook**. The function checks Netlify's
+signature (`X-Webhook-Signature`, HS256 with the webhook's JWS secret), keeps
+the form's answers (not the visitor's IP address or browser), and stores them
+in `crm_intake`. They appear on the Sales tab under **From the website**:
+**Add as lead** (the form opens filled in), **Already a lead**, or **Spam**.
+The email notifications from Netlify are unchanged.
+
+One-time setup, done by the owner in the dashboards (the secret is never written
+in this repository or in chat):
+
+1. Make a long random secret (32+ characters).
+2. Supabase → HQ project → Edge Functions → Secrets: `NETLIFY_FORM_SECRET` = that secret.
+3. Netlify → agcommand.net → Forms → Submission notifications → Add notification →
+   Outgoing webhook: event *New verified form submission*, form `demo-request`,
+   URL `https://ixvuttzhwphrypjvoitv.supabase.co/functions/v1/intake`,
+   JWS secret token = the same secret.
+
+The function is deployed with JWT verification **off** (Netlify cannot send a
+Supabase token); the signature check is what protects it. Without the secret
+set, it refuses every request.
+
+## Tests
+
+```
+SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/console.test.js
+SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/sales.test.js   # exits 1 on failure
+node --experimental-strip-types tests/intake.test.mjs                                       # intake signature check
+```
