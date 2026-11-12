@@ -59,6 +59,8 @@ const WEB = [
    payload: {data: {name: 'Buy cheap stuff', message: 'spam spam'}}},
 ];
 const writes = [];   // [method, path, body]
+const reads = [];
+let ROLE = 'owner';
 
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
@@ -92,7 +94,8 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
     if(pth === '/auth/v1/token') return ok(route, session());
     if(pth === '/auth/v1/user') return ok(route, user);
     if(pth === '/auth/v1/logout') return route.fulfill({status: 204, headers: CORS});
-    if(pth === '/rest/v1/rpc/hq_account_status') return ok(route, {approved: true});
+    reads.push(m + ' ' + pth);
+    if(pth === '/rest/v1/rpc/hq_account_status') return ok(route, {approved: true, role: ROLE});
     if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, []);
     if(pth === '/rest/v1/tenant_overview') return ok(route, TENANTS);
     if(pth === '/rest/v1/pricing_plans') return ok(route, PLANS);
@@ -108,6 +111,7 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
       if(body.stage === 'won'){ const t = TENANTS.find(x => x.tenant_id === l.tenant_id); if(t.status === 'prospect') t.status = 'onboarding'; }
       return ok(route, null, 204);
     }
+    if(pth === '/rest/v1/tenants' && m === 'GET') return ok(route, TENANTS.filter(t => ROLE !== 'sales' || t.status !== 'active').map(t => ({tenant_id: t.tenant_id, display_name: t.display_name, status: t.status})));
     if(pth === '/rest/v1/tenants' && m === 'PATCH'){ Object.assign(TENANTS.find(x => x.tenant_id === eqv('tenant_id')), body); return ok(route, null, 204); }
     if(pth === '/rest/v1/rpc/crm_create_lead'){
       const tid = body.p_tenant || 'TNT-000' + (TENANTS.length + 1);
@@ -346,6 +350,23 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.emulateMedia({colorScheme: 'light'});
 
   await grabCsp();
+  console.log('Sales account');
+  ROLE = 'sales'; reads.length = 0;
+  await p.evaluate(() => history.replaceState(null, '', '#clients')); await p.reload(); await p.waitForTimeout(1500);
+  check('opens on Sales even from #clients', await p.isVisible('#tab-sales') && !(await p.isVisible('#tab-clients')) && p.url().endsWith('#sales'));
+  check('no Clients tab', !(await p.isVisible('#tabbtn-clients')));
+  check('never asks for client data', !reads.some(r => /tenant_overview|hq_collector_status|collections|tenant_snapshots|metric_values/.test(r)) && reads.includes('GET /rest/v1/tenants'), reads);
+  check('leads still listed', (await p.$$('#lead-list [data-lead]')).length > 0);
+  await p.click('#lead-list [data-lead]'); await W();
+  check('company number is not a link to Clients', !(await p.$('#l-client')) && /TNT-\d{4}/.test(await txt('#drawer-body p.muted')));
+  await p.click('#drawer-close');
+  await p.click('#btn-add-lead'); await W();
+  const opts = await p.$$eval('#n-companies option', os => os.map(o => o.value));
+  check('add-lead company list: pipeline only', opts.length > 0 && !opts.includes('Sample Ranch Co.'), opts);
+  await p.click('#drawer-close');
+  ROLE = 'owner';
+  await grabCsp();
+
   console.log('Sign out');
   await p.click('#btn-signout'); await p.waitForTimeout(900);
   await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'signin-phone.png')});

@@ -29,6 +29,7 @@ Supabase project.
 | `supabase/migrations/0002_schedule.sql` | Nightly collection at 03:15 Pacific (pg_cron + pg_net) |
 | `supabase/migrations/0004_crm.sql` | Sales CRM: leads (`LD-####`), activity log, website intake |
 | `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
+| `supabase/migrations/0007_sales_role.sql` | A Sales-only access level |
 | `supabase/functions/collect/index.ts` | The collector |
 | `supabase/functions/intake/` | Website demo requests (Netlify form webhook) → `crm_intake` |
 | `setup/` | One-time configuration and how to connect a client database |
@@ -51,6 +52,28 @@ schema change.
   on or before today, at the greater of the plan amount and the monthly
   minimum. Others show a projected amount, not counted.
 * Billable acres are all blocks by default, or planted blocks only, per client.
+
+## HQ accounts
+
+Approved accounts are listed in `hq_private.admins` with a role:
+
+* **owner** / **support**: everything.
+* **sales**: the Sales tab only — leads, activity log, website requests, proposals
+  (pricing plans read-only), and the companies in the pipeline: prospects plus any
+  company that has a lead, so a client they won stays visible. On those companies
+  they can change only the name, legal name, region, main contact and notes, and
+  the Won step. They never see the Clients tab, other customers, revenue,
+  metrics, system health or collector settings. The database enforces this
+  (row-level security and a trigger on `tenants`), not just the screens.
+
+To approve an account after creating it in Supabase → Authentication → Users:
+
+```sql
+insert into hq_private.admins(user_id, email, role)
+select id, email, 'sales' from auth.users where email = '<EMAIL>';
+```
+
+Deleting and recreating a user in Authentication removes their approval; add it again.
 
 ## Users
 

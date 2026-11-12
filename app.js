@@ -31,7 +31,9 @@ if(!window.supabase || !C.url || /__HQ_/.test(C.url)){
   return;
 }
 const sb = window.supabase.createClient(C.url, C.key, {auth: {persistSession: true, autoRefreshToken: true}});
-let STATE = {rows: [], collectors: {}, session: null};
+let STATE = {rows: [], collectors: {}, session: null, role: null};
+// A sales account sees the Sales tab only; the database enforces the same limit.
+const isSales = () => STATE.role === 'sales';
 
 // ── sign-in ─────────────────────────────────────────────────────────────────
 async function route(){
@@ -41,6 +43,9 @@ async function route(){
   $('who').textContent = session.user && session.user.email || '';
   const {data: st, error} = await sb.rpc('hq_account_status');
   if(error || !st || !st.approved){ show('screen-denied'); return; }
+  STATE.role = st.role || 'owner';
+  $('tabbtn-clients').hidden = isSales();
+  if(isSales()) setTab('sales');
   show('screen-app');
   await load();
 }
@@ -52,13 +57,20 @@ $('form-signin').addEventListener('submit', async (e) => {
   if(error){ $('signin-msg').textContent = /fetch|network/i.test(error.message) ? 'Could not reach the server.' : 'That email or password is not right.'; return; }
   route();
 });
-const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null}; closeDrawer(); document.dispatchEvent(new Event('hq:signout')); route(); };
+const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null, role: null}; closeDrawer(); document.dispatchEvent(new Event('hq:signout')); route(); };
 $('btn-signout').addEventListener('click', signOut);
 $('btn-denied-out').addEventListener('click', signOut);
 $('btn-refresh').addEventListener('click', () => load());
 
 // ── data ────────────────────────────────────────────────────────────────────
 async function load(){
+  if(isSales()){
+    // Only the companies in the pipeline (what the database lets a sales account see).
+    const {data, error} = await sb.from('tenants').select('tenant_id,display_name,status').order('tenant_id');
+    STATE.rows = error ? [] : (data || []);
+    document.dispatchEvent(new Event('hq:loaded'));
+    return;
+  }
   $('load-msg').textContent = 'Loading…';
   const [ov, cs] = await Promise.all([
     sb.from('tenant_overview').select('*').order('tenant_id'),
@@ -75,6 +87,7 @@ async function load(){
 // ── tabs ────────────────────────────────────────────────────────────────────
 function setTab(t){
   if(t !== 'sales') t = 'clients';
+  if(isSales()) t = 'sales';
   ['clients','sales'].forEach(x => {
     $('tab-' + x).hidden = x !== t;
     $('tabbtn-' + x).setAttribute('aria-selected', String(x === t));
@@ -285,7 +298,7 @@ $('btn-add').addEventListener('click', async () => {
 // Shared with sales.js. The database decides what an account may see; this only
 // saves the second file from setting up its own connection.
 window.HQ = {sb, $, esc, num, money, when, stamp, toast, openDrawer, closeDrawer, plans,
-             rows: () => STATE.rows, plansList: () => PLANS, reload: () => load(), openClient};
+             rows: () => STATE.rows, plansList: () => PLANS, reload: () => load(), openClient, isSales};
 
 sb.auth.onAuthStateChange((ev) => { if(ev === 'SIGNED_OUT') route(); });
 route();
