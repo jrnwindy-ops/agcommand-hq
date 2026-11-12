@@ -49,6 +49,13 @@ function overview(){
             created_at: l.created_at || new Date().toISOString(), updated_at: new Date().toISOString()};
   });
 }
+const WEB = [
+  {id: 101, status: 'new', submitted_at: new Date(Date.now()-36e5).toISOString(), received_at: new Date().toISOString(),
+   payload: {data: {name: 'Rae Sample', operation: 'Example Ranch Partners', role: 'Farm manager', acres: '2,000 - 5,000', location: 'Sample Valley',
+                    email: 'rae@example.com', phone: '555-010-3000', language: 'Español', message: 'Need crews <b>check-in</b> and spray records.'}}},
+  {id: 102, status: 'new', submitted_at: new Date().toISOString(), received_at: new Date().toISOString(),
+   payload: {data: {name: 'Buy cheap stuff', message: 'spam spam'}}},
+];
 const writes = [];   // [method, path, body]
 
 const srv = http.createServer((q, r) => {
@@ -82,6 +89,8 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
     if(pth === '/rest/v1/tenant_overview') return ok(route, TENANTS);
     if(pth === '/rest/v1/pricing_plans') return ok(route, PLANS);
     if(pth === '/rest/v1/crm_lead_overview') return ok(route, overview());
+    if(pth === '/rest/v1/crm_intake' && m === 'GET') return ok(route, WEB.filter(w => w.status === 'new'));
+    if(pth === '/rest/v1/crm_intake' && m === 'PATCH'){ const w = WEB.find(x => String(x.id) === eqv('id')); if(w && w.status === 'new') Object.assign(w, body); return ok(route, null, 204); }
     if(pth === '/rest/v1/crm_activities' && m === 'GET') return ok(route, ACTS.filter(a => a.lead_id === eqv('lead_id')).sort((a, b) => b.happened_at.localeCompare(a.happened_at)));
     if(pth === '/rest/v1/crm_activities' && m === 'POST'){ ACTS.push({id: ACTS.length + 1, ...body}); return ok(route, null, 201); }
     if(pth === '/rest/v1/crm_leads' && m === 'PATCH'){
@@ -97,6 +106,7 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
       if(!body.p_tenant) TENANTS.push({tenant_id: tid, display_name: body.p_company, status: 'prospect', health:'not_connected'});
       const id = 'LD-000' + (Object.keys(LEADS).length + 1);
       LEADS[id] = {lead_id: id, tenant_id: tid, stage: 'new', crops: [], interests: [], ...body.p_lead};
+      if(body.p_intake){ const w = WEB.find(x => x.id === body.p_intake); w.status = 'accepted'; ACTS.push({id: ACTS.length + 1, lead_id: id, kind: 'intake', happened_at: w.submitted_at, summary: 'Demo request from the website'}); }
       return ok(route, id);
     }
     return ok(route, {error:'unmocked ' + pth}, 404);
@@ -115,13 +125,13 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('prospects chip shows count', (await txt('#chip-prospects')) === 'Show prospects (3)', await txt('#chip-prospects'));
   await p.click('#chip-prospects'); await W();
   check('prospects shown on tap', (await txt('#client-table tbody')).includes('Example Vineyards'));
-  check('Sales badge counts overdue + due today', (await txt('#sales-badge')) === '2', await txt('#sales-badge'));
+  check('Sales badge counts overdue + due today + website', (await txt('#sales-badge')) === '4', await txt('#sales-badge'));
 
   console.log('Sales list');
   await p.click('#tabbtn-sales'); await W();
   check('Sales tab shown', await p.isVisible('#tab-sales') && !(await p.isVisible('#tab-clients')));
   check('address remembers tab', p.url().endsWith('#sales'));
-  check('follow-up counts', (await txt('#followups')) === '1 Overdue 1 Due today', await txt('#followups'));
+  check('follow-up counts', (await txt('#followups')) === '1 Overdue 1 Due today 2 From the website', await txt('#followups'));
   const ids = await p.$$eval('#lead-list [data-lead]', els => els.map(e => e.dataset.lead));
   check('open leads only, overdue first', JSON.stringify(ids) === '["LD-0001","LD-0002"]', ids);
   check('overdue shown in words', (await txt('[data-lead="LD-0001"] .next')).startsWith('2 days overdue'), await txt('[data-lead="LD-0001"] .next'));
@@ -166,7 +176,7 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.click('#l-next button[type=submit]'); await p.waitForTimeout(800);
   const nw = lastWrite('PATCH', '/rest/v1/crm_leads');
   check('next step saved', nw[2].next_step === 'Send demo times' && nw[2].next_step_date === addDays(TODAY, 7) && nw[2].demo_at === null, nw);
-  check('no longer overdue', (await txt('#followups')) === '0 Overdue 1 Due today', await txt('#followups'));
+  check('no longer overdue', (await txt('#followups')).startsWith('0 Overdue 1 Due today'), await txt('#followups'));
 
   // details: chips and the company name (which lives on the client record)
   await p.click('#l-details .chip[data-v="irrigation"]'); await p.click('#l-details .chip[data-v="pur"]');
@@ -241,6 +251,34 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('card shows proposal estimate', (await txt('[data-lead="LD-0002"] .facts')).includes('$5,744/mo') && !(await txt('[data-lead="LD-0002"] .facts')).includes('rough'));
   const tiles2 = await txt('#sales-tiles');
   check('numbers after won + proposal', tiles2.startsWith('OPEN LEADS 3') && tiles2.includes('PIPELINE PER MONTH $5,744 $5,744 in proposals sent') && tiles2.includes('WIN RATE 50% 1 won · 1 lost') && tiles2.includes('NO NEXT STEP 0') && tiles2.includes('5 new this month'), tiles2);
+
+  console.log('From the website');
+  const inbox = await txt('#web-inbox');
+  check('website requests listed', inbox.toLowerCase().startsWith('from the website · 2 new') && inbox.includes('Example Ranch Partners') && inbox.includes('Rae Sample · Farm manager'), inbox.slice(0, 160));
+  check('message escaped', await p.$eval('#web-inbox [data-web="101"] .msgq', e => !e.querySelector('b') && e.textContent.includes('<b>check-in</b>')));
+  await p.click('#web-inbox [data-web="101"] [data-act="accept"]'); await W();
+  const fv = (n) => p.inputValue(`#n-form [name=${n}]`);
+  const pressed = (g) => p.$eval(`#n-form .chips[data-group="${g}"]`, e => [...e.querySelectorAll('[aria-pressed="true"]')].map(x => x.dataset.v).join());
+  check('request shown above the form', (await txt('#drawer-body')).includes('Operation Example Ranch Partners'));
+  check('prefilled from the request', (await fv('company')) === 'Example Ranch Partners' && (await fv('contact_name')) === 'Rae Sample' && (await fv('contact_role')) === 'Farm manager'
+        && (await fv('email')) === 'rae@example.com' && (await fv('phone')) === '555-010-3000' && (await fv('region')) === 'Sample Valley'
+        && (await fv('interests_note')).includes('spray records') && (await fv('next_step_date')) === TODAY);
+  check('chips prefilled', (await pressed('source')) === 'website' && (await pressed('language')) === 'es' && (await pressed('acres_range')) === '2000_5000',
+        [await pressed('source'), await pressed('language'), await pressed('acres_range')]);
+  check('new company noted (prefill)', (await txt('#n-match')).startsWith('New company'));
+  await p.click('#n-form .chip[data-v="spray_records"]');
+  await p.click('#n-form button[type=submit]'); await p.waitForTimeout(1200);
+  const iw = lastWrite('POST', '/rest/v1/rpc/crm_create_lead');
+  check('lead created from the request', iw[2].p_intake === 101 && iw[2].p_company === 'Example Ranch Partners' && iw[2].p_lead.source === 'website' && iw[2].p_lead.language === 'es'
+        && iw[2].p_lead.acres_range === '2000_5000' && JSON.stringify(iw[2].p_lead.interests) === '["spray_records"]' && iw[2].p_lead.interests_note.includes('check-in'), iw[2]);
+  check('history notes the website request', (await txt('#drawer-body')).includes('Demo request from the website'));
+  await p.click('#drawer-close'); await W();
+  check('request leaves the list', (await txt('#web-inbox')).toLowerCase().startsWith('from the website · 1 new'));
+  const dBefore = dialogs;
+  await p.click('#web-inbox [data-web="102"] [data-act="spam"]'); await p.waitForTimeout(900);
+  const sw = lastWrite('PATCH', '/rest/v1/crm_intake');
+  check('spam asks, then saves', dialogs === dBefore + 1 && sw[1].includes('id=eq.102') && sw[2].status === 'spam' && !isNaN(Date.parse(sw[2].handled_at)), sw);
+  check('list empty, button gone', (await txt('#web-inbox')) === '' && !(await p.$('#fu-web')));
 
   console.log('Phone');
   await p.setViewportSize({width: 390, height: 844}); await p.reload(); await p.waitForTimeout(1500);

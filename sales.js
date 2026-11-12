@@ -95,22 +95,27 @@ document.addEventListener('click', (e) => {
 let LEADS = [], loaded = false, openId = null;
 const F = {stage: 'open', source: 'all', due: null, q: ''};
 
+let WEB = [];   // website requests not yet handled
 async function loadLeads(){
   $('sales-msg').textContent = loaded ? '' : 'Loading…';
-  const {data, error} = await sb.from('crm_lead_overview').select('*');
-  if(error){ $('sales-msg').textContent = 'Could not load leads: ' + error.message; return false; }
-  LEADS = data || []; loaded = true;
+  const [lv, wv] = await Promise.all([
+    sb.from('crm_lead_overview').select('*'),
+    sb.from('crm_intake').select('id,submitted_at,received_at,payload').eq('status', 'new').order('received_at', {ascending: true}).limit(100)
+  ]);
+  if(lv.error){ $('sales-msg').textContent = 'Could not load leads: ' + lv.error.message; return false; }
+  LEADS = lv.data || []; loaded = true;
+  WEB = wv.error ? [] : (wv.data || []);
   $('sales-msg').textContent = '';
   render();
   return true;
 }
 // Leads load with the rest of the console (small list), so the badge shows on either tab.
 document.addEventListener('hq:loaded', () => loadLeads());
-document.addEventListener('hq:signout', () => { LEADS = []; loaded = false; openId = null; $('lead-list').innerHTML = ''; badge(); });
+document.addEventListener('hq:signout', () => { LEADS = []; WEB = []; loaded = false; openId = null; $('lead-list').innerHTML = ''; $('web-inbox').innerHTML = ''; badge(); });
 
-// Overdue + due today, on the tab itself so it shows from the Clients tab too.
+// Overdue + due today + new website requests, on the tab itself so it shows from the Clients tab too.
 function badge(){
-  const n = LEADS.filter(l => l.due_state === 'overdue' || l.due_state === 'today').length;
+  const n = LEADS.filter(l => l.due_state === 'overdue' || l.due_state === 'today').length + WEB.length;
   $('sales-badge').hidden = !n; $('sales-badge').textContent = n;
 }
 
@@ -138,7 +143,9 @@ function render(){
   const today = LEADS.filter(l => l.due_state === 'today').length;
   $('followups').innerHTML =
     `<button type="button" class="fu fu-bad" data-due="overdue" aria-pressed="${F.due === 'overdue'}"><b>${over}</b> Overdue</button>` +
-    `<button type="button" class="fu fu-warn" data-due="today" aria-pressed="${F.due === 'today'}"><b>${today}</b> Due today</button>`;
+    `<button type="button" class="fu fu-warn" data-due="today" aria-pressed="${F.due === 'today'}"><b>${today}</b> Due today</button>` +
+    (WEB.length ? `<button type="button" class="fu fu-web" id="fu-web"><b>${WEB.length}</b> From the website</button>` : '');
+  renderWeb();
 
   const inStage = (k) => LEADS.filter(l => k === 'all' || (k === 'open' ? OPEN.has(l.stage) : l.stage === k)).length;
   $('f-stage').innerHTML = [['open','Open'], ...STAGES, ['all','All']].map(([k, lbl]) =>
@@ -205,11 +212,66 @@ function card(l){
         : '<span class="muted">No next step set</span>'}</div>` : ''}
   </button>`;
 }
-$('followups').addEventListener('click', (e) => { const b = e.target.closest('[data-due]'); if(!b) return; F.due = F.due === b.dataset.due ? null : b.dataset.due; if(F.due) F.stage = 'open'; render(); });
+$('followups').addEventListener('click', (e) => { if(e.target.closest('#fu-web')){ $('web-inbox').scrollIntoView({behavior: 'smooth', block: 'start'}); return; } const b = e.target.closest('[data-due]'); if(!b) return; F.due = F.due === b.dataset.due ? null : b.dataset.due; if(F.due) F.stage = 'open'; render(); });
 $('f-stage').addEventListener('click', (e) => { const b = e.target.closest('[data-stage]'); if(!b) return; F.stage = b.dataset.stage; F.due = null; render(); });
 $('f-source').addEventListener('click', (e) => { const b = e.target.closest('[data-source]'); if(!b) return; F.source = b.dataset.source; render(); });
 $('f-search').addEventListener('input', (e) => { F.q = e.target.value.trim().toLowerCase(); render(); });
 $('lead-list').addEventListener('click', (e) => { const b = e.target.closest('[data-lead]'); if(b) openLead(b.dataset.lead); });
+
+// ── from the website ────────────────────────────────────────────────────────
+// The demo request form's answers, read leniently: the wording of its choices
+// can change on the website without breaking anything here.
+const webData = (w) => (w.payload && w.payload.data) || {};
+function acresFromText(t){
+  t = String(t || '').toLowerCase().replace(/,/g, '');
+  const n = (t.match(/\d+(\.\d+)?/g) || []).map(Number);
+  if(!n.length) return null;
+  const lo = Math.min(...n), hi = Math.max(...n);
+  if(/under|less|fewer|below|</.test(t) || hi <= 500) return 'under_500';
+  if(/\+|over|more|above/.test(t) && lo >= 5000) return '5000_plus';
+  if(lo >= 5000) return '5000_plus';
+  if(lo >= 2000) return '2000_5000';
+  if(lo >= 500) return '500_2000';
+  return 'under_500';
+}
+const langFromText = (t) => /espa|span|^\s*es\b/i.test(String(t || '')) ? 'es' : 'en';
+function prefillFromWeb(w){
+  const d = webData(w);
+  return {company: d.operation || d.company || '', contact_name: d.name || '', contact_role: d.role || '', phone: d.phone || '',
+          email: d.email || '', region: d.location || '', language: langFromText(d.language), acres_range: acresFromText(d.acres),
+          interests_note: d.message || '', source: 'website'};
+}
+const WEB_LABELS = {name: 'Name', operation: 'Operation', role: 'Role', acres: 'Acres', location: 'Location', email: 'Email', phone: 'Phone', language: 'Language', message: 'Message'};
+function webFields(w){
+  const d = webData(w), keys = [...Object.keys(WEB_LABELS).filter(k => d[k]), ...Object.keys(d).filter(k => !(k in WEB_LABELS) && k !== 'referrer' && d[k])];
+  return `<dl class="kv web-kv">${keys.map(k => `<dt>${esc(WEB_LABELS[k] || k)}</dt><dd>${esc(d[k])}</dd>`).join('')}</dl>`;
+}
+function renderWeb(){
+  const box = $('web-inbox');
+  if(!WEB.length){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="dsec web"><h3>From the website · ${WEB.length} new</h3>` + WEB.map(w => {
+    const d = webData(w);
+    return `<div class="webreq" data-web="${esc(w.id)}">` +
+      `<div class="lead-top"><b class="co">${esc(d.operation || d.name || 'Demo request')}</b><span class="muted small">${esc(shortStamp(w.submitted_at || w.received_at))}</span></div>` +
+      `<div class="who2">${esc([d.name, d.role].filter(Boolean).join(' · '))}</div>` +
+      `<div class="facts">${esc([d.acres && d.acres + ' ac', d.location, d.language].filter(Boolean).join(' · '))}</div>` +
+      (d.message ? `<p class="msgq">${esc(String(d.message).slice(0, 280))}${String(d.message).length > 280 ? '…' : ''}</p>` : '') +
+      `<div class="actions"><button type="button" class="btn primary" data-act="accept">Add as lead</button>` +
+      `<button type="button" class="btn ghost" data-act="duplicate">Already a lead</button>` +
+      `<button type="button" class="btn ghost" data-act="spam">Spam</button></div></div>`;
+  }).join('') + `</div>`;
+}
+$('web-inbox').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-act]'); if(!b) return;
+  const w = WEB.find(x => String(x.id) === b.closest('[data-web]').dataset.web); if(!w) return;
+  if(b.dataset.act === 'accept'){ openAddLead(prefillFromWeb(w), w); return; }
+  const label = b.dataset.act === 'spam' ? 'spam' : 'already a lead';
+  if(!confirm(`Mark this request as ${label}? It leaves this list.`)) return;
+  const {error} = await sb.from('crm_intake').update({status: b.dataset.act, handled_at: new Date().toISOString()}).eq('id', w.id).eq('status', 'new');
+  if(error){ toast('Not saved: ' + error.message); return; }
+  toast(b.dataset.act === 'spam' ? 'Marked as spam' : 'Marked as already a lead');
+  loadLeads();
+});
 
 // ── lead detail ─────────────────────────────────────────────────────────────
 const telHref = (p) => { const d = String(p || '').replace(/[^\d+]/g, ''); return d.length >= 7 ? d : null; };
@@ -446,28 +508,32 @@ function wireLead(l){
 }
 
 // ── add a lead ──────────────────────────────────────────────────────────────
-$('btn-add-lead').addEventListener('click', () => {
+function openAddLead(pre = {}, web = null){
   openId = null;
   const companies = H.rows().map(r => ({id: r.tenant_id, name: r.display_name, status: r.status}));
+  const v = (k) => esc(pre[k] || '');
   H.openDrawer(
     `<h1>Add lead</h1><p class="muted">Pick a company already in HQ, or type a new one — it is added as a prospect with a permanent TNT number.</p>` +
+    (web ? `<div class="dsec"><h3>From the website · ${esc(shortStamp(web.submitted_at || web.received_at))}</h3>${webFields(web)}` +
+           `<p class="small muted">Filled in below from the request. Check it, then create the lead.</p></div>` : '') +
     `<form class="dsec" id="n-form"><div class="form-grid">` +
-      `<label class="full">Company *<input name="company" list="n-companies" required maxlength="200" autocomplete="off"></label>` +
+      `<label class="full">Company *<input name="company" list="n-companies" required maxlength="200" autocomplete="off" value="${v('company')}"></label>` +
       `<datalist id="n-companies">${companies.map(c => `<option value="${esc(c.name)}">`).join('')}</datalist>` +
       `<p class="small full" id="n-match"></p>` +
-      `<label>Contact name<input name="contact_name" maxlength="200"></label>` +
-      `<label>Role<input name="contact_role" maxlength="200" placeholder="e.g. Ranch manager"></label>` +
-      `<label>Phone<input name="phone" type="tel" maxlength="40"></label>` +
-      `<label>Email<input name="email" type="email" maxlength="200"></label>` +
-      `<label class="full">Region<input name="region" maxlength="120" placeholder="e.g. Fresno County"></label>` +
+      `<label>Contact name<input name="contact_name" maxlength="200" value="${v('contact_name')}"></label>` +
+      `<label>Role<input name="contact_role" maxlength="200" placeholder="e.g. Ranch manager" value="${v('contact_role')}"></label>` +
+      `<label>Phone<input name="phone" type="tel" maxlength="40" value="${v('phone')}"></label>` +
+      `<label>Email<input name="email" type="email" maxlength="200" value="${v('email')}"></label>` +
+      `<label class="full">Region<input name="region" maxlength="120" placeholder="e.g. Fresno County" value="${v('region')}"></label>` +
     `</div>` +
-    `<p class="lbl">How they found us *</p>${chips('source', SOURCES, null, false, true)}` +
-    `<p class="lbl">Preferred language</p>${chips('language', LANGS, 'en', false, true)}` +
-    `<p class="lbl">Acres</p>${chips('acres_range', ACRES, null)}` +
+    `<p class="lbl">How they found us *</p>${chips('source', SOURCES, pre.source || null, false, true)}` +
+    `<p class="lbl">Preferred language</p>${chips('language', LANGS, pre.language || 'en', false, true)}` +
+    `<p class="lbl">Acres</p>${chips('acres_range', ACRES, pre.acres_range || null)}` +
     `<p class="lbl">Wants help with</p>${chips('interests', INTERESTS, [], true)}` +
+    `<label class="full" style="margin-top:8px">In their words<textarea name="interests_note" rows="3" maxlength="2000">${v('interests_note')}</textarea></label>` +
     `<div class="form-grid" style="margin-top:10px">` +
-      `<label class="full">Next step<input name="next_step" maxlength="300" placeholder="e.g. Call to book a demo"></label>` +
-      `<label>By<input type="date" name="next_step_date" value="${esc(addDays(dayOf(), 1))}"></label>` +
+      `<label class="full">Next step<input name="next_step" maxlength="300" placeholder="e.g. Call to book a demo" value="${web ? 'Reach out and thank them for the request' : ''}"></label>` +
+      `<label>By<input type="date" name="next_step_date" value="${esc(addDays(dayOf(), web ? 0 : 1))}"></label>` +
     `</div>` +
     `<div class="actions"><button class="btn primary" type="submit">Create lead</button></div></form>`
   );
@@ -480,6 +546,7 @@ $('btn-add-lead').addEventListener('click', () => {
           : 'New company. It will be added as a prospect.';
   };
   f.elements.company.addEventListener('input', showMatch);
+  showMatch();
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const company = val(f, 'company'); if(!company){ toast('Company name is required'); return; }
@@ -488,16 +555,18 @@ $('btn-add-lead').addEventListener('click', () => {
     const c = findCo(company);
     const lead = {contact_name: val(f, 'contact_name'), contact_role: val(f, 'contact_role'), phone: val(f, 'phone'), email,
                   region: val(f, 'region'), source, language: chipValue(f, 'language') || 'en', acres_range: chipValue(f, 'acres_range'),
-                  interests: chipValue(f, 'interests'), next_step: val(f, 'next_step'), next_step_date: val(f, 'next_step_date')};
+                  interests: chipValue(f, 'interests'), interests_note: val(f, 'interests_note'),
+                  next_step: val(f, 'next_step'), next_step_date: val(f, 'next_step_date')};
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
-    const {data, error} = await sb.rpc('crm_create_lead', {p_lead: lead, p_tenant: c ? c.id : null, p_company: c ? null : company});
+    const {data, error} = await sb.rpc('crm_create_lead', {p_lead: lead, p_tenant: c ? c.id : null, p_company: c ? null : company, p_intake: web ? web.id : null});
     btn.disabled = false;
     if(error){ toast('Not created: ' + error.message); return; }
     toast('Created ' + data);
     if(!c) H.reload();
     await loadLeads(); openLead(data);
   });
-});
+}
+$('btn-add-lead').addEventListener('click', () => openAddLead());
 
 H.sales = {reload: loadLeads};
 })();

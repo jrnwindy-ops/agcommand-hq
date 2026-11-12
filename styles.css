@@ -117,3 +117,10 @@ a.btn{text-decoration:none;display:inline-block}
 .price .tot td{border-top:2px solid var(--bd)}
 @media (max-width:640px){ .bd-grid{grid-template-columns:1fr} }
 .lines .n{text-align:right;white-space:nowrap}
+/* ── from the website ── */
+.web{margin:0 0 14px}
+.webreq{padding:10px 0;border-bottom:1px solid var(--bd);display:flex;flex-direction:column;gap:3px}
+.webreq:last-child{border-bottom:none;padding-bottom:0}
+.msgq{margin:4px 0 0;font-size:14px;color:var(--tx2);white-space:pre-wrap;overflow-wrap:anywhere;border-left:3px solid var(--bd);padding-left:8px}
+.fu-web b{color:var(--brand-tx)}
+.web-kv dd{overflow-wrap:anywhere;white-space:pre-wrap}

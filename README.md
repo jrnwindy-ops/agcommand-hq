@@ -29,6 +29,7 @@ Supabase project.
 | `supabase/migrations/0004_crm.sql` | Sales CRM: leads (`LD-####`), activity log, website intake |
 | `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
 | `supabase/functions/collect/index.ts` | The collector |
+| `supabase/functions/intake/` | Website demo requests (Netlify form webhook) → `crm_intake` |
 | `setup/` | One-time configuration and how to connect a client database |
 | `tests/` | Console tests against a mocked backend |
 
@@ -73,9 +74,34 @@ account per client), so HQ does not show user counts.
   stage and by source.
 * No lead or contact data is ever written to this repository. Tests use made-up names.
 
+## Website demo requests
+
+The website's `demo-request` form (Netlify Forms) notifies the `intake` Edge
+Function through an **outgoing webhook**. The function checks Netlify's
+signature (`X-Webhook-Signature`, HS256 with the webhook's JWS secret), keeps
+the form's answers (not the visitor's IP address or browser), and stores them
+in `crm_intake`. They appear on the Sales tab under **From the website**:
+**Add as lead** (the form opens filled in), **Already a lead**, or **Spam**.
+The email notifications from Netlify are unchanged.
+
+One-time setup, done by the owner in the dashboards (the secret is never written
+in this repository or in chat):
+
+1. Make a long random secret (32+ characters).
+2. Supabase → HQ project → Edge Functions → Secrets: `NETLIFY_FORM_SECRET` = that secret.
+3. Netlify → agcommand.net → Forms → Submission notifications → Add notification →
+   Outgoing webhook: event *New verified form submission*, form `demo-request`,
+   URL `https://ixvuttzhwphrypjvoitv.supabase.co/functions/v1/intake`,
+   JWS secret token = the same secret.
+
+The function is deployed with JWT verification **off** (Netlify cannot send a
+Supabase token); the signature check is what protects it. Without the secret
+set, it refuses every request.
+
 ## Tests
 
 ```
 SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/console.test.js
 SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/sales.test.js   # exits 1 on failure
+node --experimental-strip-types tests/intake.test.mjs                                       # intake signature check
 ```
