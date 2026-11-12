@@ -10,7 +10,7 @@ const jwt = (aal) => b64({alg:'HS256',typ:'JWT'}) + '.' + b64({sub:'u1', aal, am
 const user = (verified) => ({id:'u1', email:'owner@x.com', aud:'authenticated', role:'authenticated', factors: verified ? [{id:'f1', factor_type:'totp', status:'verified', friendly_name:'AgCommand HQ'}] : []});
 const session = (aal, verified) => ({access_token: jwt(aal), token_type:'bearer', expires_in:3600, expires_at: Math.floor(Date.now()/1000)+3600, refresh_token:'r', user: user(verified)});
 const ROWS = [
-  {tenant_id:'TNT-0001', display_name:'Crown Farming, Inc.', status:'pilot', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:582.93, acres_planted:433.24, acres_billable:582.93, blocks:10, events_30d:81, last_activity:new Date(Date.now()-2*864e5).toISOString(), last_ok_at:new Date().toISOString(), last_attempt_at:new Date().toISOString(), last_status:'ok', schema_version:'2026.09.30.1', app_build:'2026-09-30 09:40', app_last_seen:new Date().toISOString(), price_breakdown:{amount:582.93, lines:[{qty:582.93, rate:1, amount:582.93}]}, mrr:0, health:'ok'},
+  {tenant_id:'TNT-0001', display_name:'Sample Ranch Co.', status:'pilot', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:582.93, acres_planted:433.24, acres_billable:582.93, blocks:10, events_30d:81, last_activity:new Date(Date.now()-2*864e5).toISOString(), last_ok_at:new Date().toISOString(), last_attempt_at:new Date().toISOString(), last_status:'ok', schema_version:'2026.09.30.1', app_build:'2026-09-30 09:40', app_last_seen:new Date().toISOString(), price_breakdown:{amount:582.93, lines:[{qty:582.93, rate:1, amount:582.93}]}, mrr:0, health:'ok'},
   {tenant_id:'TNT-0002', display_name:'Test <b>Active</b>', status:'active', pricing_plan_id:'ACRE-TIER-2026', plan_name:'Per acre per month — graduated', billable_basis:'managed', acres_managed:6487, acres_planted:6000, acres_billable:6487, blocks:90, events_30d:1842, last_activity:new Date().toISOString(), last_ok_at:new Date(Date.now()-3*864e5).toISOString(), last_attempt_at:new Date(Date.now()-3*864e5).toISOString(), last_status:'ok', price_breakdown:{amount:5743.5, lines:[{qty:4000,rate:1,amount:4000},{qty:2000,rate:.75,amount:1500},{qty:487,rate:.5,amount:243.5}]}, mrr:5743.5, health:'stale', monthly_minimum:500},
 ];
 const srv = http.createServer((q, r) => {
@@ -38,7 +38,7 @@ const srv = http.createServer((q, r) => {
     if(/\/auth\/v1\/factors\/f1\/verify/.test(pth)){ if(body.code !== '123456') return ok(route, {error:'invalid', msg:'Invalid TOTP code'}, 422); verified = true; return ok(route, session('aal2', true)); }
     if(pth === '/auth/v1/logout') return route.fulfill({status: 204, headers: CORS});
     if(pth === '/rest/v1/rpc/hq_account_status') return ok(route, {approved, aal: 'aal2'});
-    if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, [{tenant_id:'TNT-0001', endpoint:'https://skwayumhqvlbjonxpsfy.supabase.co', enabled:true}]);
+    if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, [{tenant_id:'TNT-0001', endpoint:'https://clienttest.supabase.co', enabled:true}]);
     if(pth === '/rest/v1/rpc/hq_set_collector') return ok(route, null);
     if(pth === '/rest/v1/tenant_overview') return ok(route, ROWS);
     if(pth === '/rest/v1/pricing_plans') return ok(route, [{plan_id:'ACRE-TIER-2026', name:'Per acre per month — graduated', tiers:[]}]);
