@@ -7,6 +7,7 @@
 const H = window.HQ;
 if(!H) return;                       // app.js did not start (not configured)
 const {sb, $, esc, toast, money, num} = H;
+const CFG = window.HQ_CONFIG || {};
 
 // ── vocabularies (keys match the database checks) ───────────────────────────
 const STAGES = [['new','New'],['contacted','Contacted'],['demo_scheduled','Demo scheduled'],['demo_done','Demo done'],
@@ -312,6 +313,7 @@ async function openLead(id){
         (mail ? `<a class="btn ghost" href="mailto:${esc(mail)}">Email</a>` : '') +
         (!tel && !mail ? '<span class="muted small">Add a phone or email under Details.</span>' : '') +
       `</div>${tel || mail ? '<p class="small muted">These open your phone or mail app. Log the call, text or email below afterwards.</p>' : ''}</div>` +
+    (OPEN.has(l.stage) ? bookingSection(l, tel, mail) : '') +
     // stage
     `<div class="dsec"><h3>Stage</h3>${chips('stage', STAGES, l.stage, false, true)}` +
       `<div id="l-lost" ${l.stage === 'lost' ? '' : 'hidden'}><p class="small"><b>Why was it lost?</b></p>${chips('lost_reason', LOST, l.lost_reason)}` +
@@ -343,6 +345,70 @@ async function openLead(id){
     detailsForm(l)
   );
   wireLead(l);
+}
+
+// ── demo booking link ───────────────────────────────────────────────────────
+// Opens the phone's Messages or Mail app with a message ready to send; nothing
+// is sent from HQ. The owner sends it, then taps "Log it as sent".
+const bookingUrl = () => /^https:\/\/[^\s"'<>]+$/.test(String(CFG.bookingUrl || '')) ? CFG.bookingUrl : null;
+function bookingMessage(l, via){
+  const url = bookingUrl(), first = String(l.contact_name || '').trim().split(/\s+/)[0];
+  const signer = String(CFG.bookingSigner || '').trim();
+  if(l.language === 'es'){
+    return {subject: 'Escoja una hora para su demostración de AgCommand',
+      body: `${first ? 'Hola ' + first : 'Hola'}, ¡muchas gracias por su interés en AgCommand! ` +
+            `Aquí tiene un enlace para escoger la hora que mejor le convenga para una demostración breve:\n${url}\n\n` +
+            (via === 'email' ? `Con gusto,\n${signer ? signer + '\n' : ''}AgCommand` : `${signer ? signer + ', ' : ''}AgCommand`)};
+  }
+  return {subject: 'Pick a time for your AgCommand demo',
+    body: `${first ? 'Hi ' + first : 'Hi there'}, thank you for your interest in AgCommand! ` +
+          `Here is a link to pick a time for a short demo that works for you:\n${url}\n\n` +
+          (via === 'email' ? `Thank you,\n${signer ? signer + '\n' : ''}AgCommand` : `${signer ? signer + ', ' : ''}AgCommand`)};
+}
+function bookingSection(l, tel, mail){
+  if(!bookingUrl()) return `<div class="dsec"><h3>Demo booking</h3><p class="muted small">The booking link isn’t set up yet.</p></div>`;
+  const ways = [tel && ['text', 'Text'], mail && ['email', 'Email']].filter(Boolean);
+  if(!ways.length) return `<div class="dsec"><h3>Demo booking</h3><p class="muted small">Add a phone or email under Details to send the booking link.</p>` +
+    `<div class="actions"><button type="button" class="btn ghost" id="b-copy">Copy booking link</button></div></div>`;
+  const via = ways[0][0];
+  return `<div class="dsec" id="l-book"><h3>Demo booking</h3>` +
+    `<p class="lbl mt0">Send the booking link by</p>${chips('via', ways, via, false, true)}` +
+    `<label class="full mt8">Message${l.language === 'es' ? ' (en español)' : ''}<textarea id="b-msg" rows="5" maxlength="1500">${esc(bookingMessage(l, via).body)}</textarea></label>` +
+    `<div class="actions"><a class="btn primary" id="b-open" href="#">${via === 'text' ? 'Open in Messages' : 'Open in Mail'}</a>` +
+    `<button type="button" class="btn ghost" id="b-copy">Copy link</button>` +
+    `<button type="button" class="btn ghost" id="b-log" hidden>Log it as sent</button></div>` +
+    `<p class="small muted">Opens your phone’s ${tel && mail ? 'Messages or Mail' : tel ? 'Messages' : 'Mail'} app with the message ready. Nothing is sent until you send it there.</p></div>`;
+}
+function wireBooking(l, tel, mail){
+  const copy = $('b-copy');
+  if(copy) copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(bookingUrl()); toast('Booking link copied'); }
+    catch(e){ toast(bookingUrl()); }
+  });
+  const box = $('l-book'); if(!box) return;
+  const via = () => chipValue(box, 'via');
+  const href = () => {
+    const body = $('b-msg').value;
+    return via() === 'text' ? `sms:${tel}?&body=${encodeURIComponent(body)}`
+      : `mailto:${mail}?subject=${encodeURIComponent(bookingMessage(l, 'email').subject)}&body=${encodeURIComponent(body)}`;
+  };
+  const sync = () => { $('b-open').href = href(); $('b-open').textContent = via() === 'text' ? 'Open in Messages' : 'Open in Mail'; };
+  box.addEventListener('chips', () => { $('b-msg').value = bookingMessage(l, via()).body; sync(); });
+  $('b-msg').addEventListener('input', sync);
+  sync();
+  $('b-open').addEventListener('click', () => { $('b-log').hidden = false; });
+  $('b-log').addEventListener('click', async () => {
+    const kind = via() === 'text' ? 'text' : 'email';
+    const {error} = await sb.from('crm_activities').insert({lead_id: l.lead_id, kind, happened_at: new Date().toISOString(),
+      summary: `Sent the demo booking link by ${kind === 'text' ? 'text' : 'email'}.`});
+    if(error){ toast('Not saved: ' + error.message); return; }
+    const patch = {};
+    if(l.stage === 'new') patch.stage = 'contacted';
+    const check = addDays(dayOf(), 3);
+    if(!l.next_step_date || l.next_step_date < check){ patch.next_step = 'See if they booked a demo'; patch.next_step_date = check; }
+    if(Object.keys(patch).length) await updateLead(l.lead_id, patch, 'Logged — booking link sent');
+    else afterChange(l.lead_id, 'Logged — booking link sent');
+  });
 }
 
 function activePlans(){ return (H.plansList() || []); }
@@ -414,6 +480,7 @@ async function updateLead(id, patch, msg){
 
 function wireLead(l){
   const id = l.lead_id, root = $('drawer-body');
+  wireBooking(l, telHref(l.phone), okEmail(l.email) ? l.email : null);
   $('l-client').addEventListener('click', (e) => { e.preventDefault(); H.openClient(l.tenant_id); });
 
   // stage: tap to move. Lost needs a reason first; Won turns the company into a client.

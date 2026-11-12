@@ -62,9 +62,10 @@ const writes = [];   // [method, path, body]
 
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
-  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
+  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test',bookingUrl:'https://calendar.example.com/book/test',bookingSigner:'Test Owner'};`); }
   const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
-  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
+  const TYPES = {'.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.woff2':'font/woff2'};
+  r.writeHead(200, {'content-type': TYPES[path.extname(f)] || 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
 }).listen(8767);
 
 let fails = 0;
@@ -73,6 +74,8 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
   const errs = []; p.on('pageerror', e => errs.push(e.message));
+  // Keep sms:/mailto: links from leaving the page in the test browser.
+  await ctx.addInitScript(() => document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href^="sms:"],a[href^="mailto:"]'); if(a) e.preventDefault(); }, true));
   await ctx.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sample || ''))); });
   const cspSeen = [];
   const grabCsp = async () => { try { cspSeen.push(...await p.evaluate(() => window.__csp.splice(0))); } catch(e){} };
@@ -185,6 +188,26 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('next step saved', nw[2].next_step === 'Send demo times' && nw[2].next_step_date === addDays(TODAY, 7) && nw[2].demo_at === null, nw);
   check('no longer overdue', (await txt('#followups')).startsWith('0 Overdue 1 Due today'), await txt('#followups'));
 
+  // demo booking link (English lead with phone and email)
+  check('booking section shown', (await txt('#l-book')).includes('Send the booking link by'));
+  const bmsg = await p.inputValue('#b-msg');
+  check('English message, signed', bmsg.startsWith('Hi Pat, thank you for your interest in AgCommand!') && bmsg.includes('https://calendar.example.com/book/test') && bmsg.endsWith('Test Owner, AgCommand'), bmsg);
+  const sms = await p.getAttribute('#b-open', 'href');
+  check('text opens Messages with the message', sms.startsWith('sms:5550102000?&body=Hi%20Pat') && (await txt('#b-open')) === 'Open in Messages', sms.slice(0, 60));
+  await p.click('#l-book .chip[data-v="email"]'); await W();
+  const ml = await p.getAttribute('#b-open', 'href');
+  check('email opens Mail with subject and signature', ml.startsWith('mailto:pat@example.com?subject=Pick%20a%20time%20for%20your%20AgCommand%20demo&body=Hi%20Pat') && (await p.inputValue('#b-msg')).endsWith('Thank you,\nTest Owner\nAgCommand'), ml.slice(0, 90));
+  await p.fill('#b-msg', 'Hi Pat, edited message https://calendar.example.com/book/test');
+  check('edits carry into the link', (await p.getAttribute('#b-open', 'href')).includes('edited%20message'));
+  check('"Log it as sent" hidden until opened', !(await p.isVisible('#b-log')));
+  await p.click('#b-open'); await W();
+  check('stays in HQ after opening', p.url().startsWith('http://localhost:8767/') && await p.isVisible('#b-log'));
+  const bw0 = writes.length;
+  await p.click('#b-log'); await p.waitForTimeout(900);
+  const bw = writes.slice(bw0);
+  check('logged as email; later next step kept', bw.length === 1 && bw[0][1].startsWith('/rest/v1/crm_activities') && bw[0][2].kind === 'email' && /booking link by email/.test(bw[0][2].summary), bw);
+  check('booking log in history', (await txt('#drawer-body')).includes('Sent the demo booking link by email.'));
+
   // details: chips and the company name (which lives on the client record)
   await p.click('#l-details .chip[data-v="irrigation"]'); await p.click('#l-details .chip[data-v="pur"]');
   await p.click('#l-details .chips[data-group="language"] .chip[data-v="es"]');
@@ -279,6 +302,20 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('lead created from the request', iw[2].p_intake === 101 && iw[2].p_company === 'Example Ranch Partners' && iw[2].p_lead.source === 'website' && iw[2].p_lead.language === 'es'
         && iw[2].p_lead.acres_range === '2000_5000' && JSON.stringify(iw[2].p_lead.interests) === '["spray_records"]' && iw[2].p_lead.interests_note.includes('check-in'), iw[2]);
   check('history notes the website request', (await txt('#drawer-body')).includes('Demo request from the website'));
+  const es = await p.inputValue('#b-msg');
+  check('Spanish lead gets the Spanish message', es.startsWith('Hola Rae, ¡muchas gracias por su interés en AgCommand!') && es.includes('demostración breve'), es.slice(0, 80));
+  const bw1 = writes.length;
+  await p.click('#b-open'); await p.click('#b-log'); await p.waitForTimeout(1000);
+  const lw2 = writes.slice(bw1).find(w => w[0] === 'PATCH' && w[1].startsWith('/rest/v1/crm_leads'));
+  check('new lead: booking link moves it to Contacted, check back in 3 days', lw2 && lw2[2].stage === 'contacted' && lw2[2].next_step === 'See if they booked a demo' && lw2[2].next_step_date === addDays(TODAY, 3), lw2);
+  await p.evaluate(() => { window.HQ_CONFIG.bookingUrl = ''; });
+  const openNow = await p.$eval('#drawer-body h1', e => e.textContent);
+  await p.click('#drawer-close'); await p.click('[data-lead="LD-0002"]'); await W();
+  check('no booking link set → says so', (await txt('#drawer-body')).includes('The booking link isn’t set up yet.') && !(await p.$('#b-open')), openNow);
+  await p.evaluate(() => { window.HQ_CONFIG.bookingUrl = 'https://calendar.example.com/book/test'; });
+  await p.click('#drawer-close'); await p.click('[data-lead="LD-0002"]'); await W();
+  check('lead without phone/email: copy link only', (await txt('#drawer-body')).includes('Add a phone or email under Details to send the booking link.') && !!(await p.$('#b-copy')));
+  await p.click('#drawer-close'); await p.click('[data-lead="LD-0006"]'); await W();
   await p.click('#drawer-close'); await W();
   check('request leaves the list', (await txt('#web-inbox')).toLowerCase().startsWith('from the website · 1 new'));
   const dBefore = dialogs;
@@ -301,10 +338,17 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.click('#sales-numbers summary'); await W();
   check('no sideways scroll (numbers)', (await over()) <= 0, await over());
   await (await p.$('.sales')).screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-list.png')});
+  check('logo and fonts load', await p.$eval('.brand .mark', i => i.complete && i.naturalWidth > 0) && await p.evaluate(() => document.fonts.check('600 20px Cinzel') && document.fonts.check('16px "Hanken Grotesk"')));
+  check('header stays one row on a phone', (await p.$eval('.top', e => e.getBoundingClientRect().height)) <= 64, await p.$eval('.top', e => e.getBoundingClientRect().height));
+  await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-top.png')});
+  await p.emulateMedia({colorScheme: 'dark'}); await W();
+  await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-dark.png')});
+  await p.emulateMedia({colorScheme: 'light'});
 
   await grabCsp();
   console.log('Sign out');
   await p.click('#btn-signout'); await p.waitForTimeout(900);
+  await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'signin-phone.png')});
   check('signed out clears leads', await p.isVisible('#form-signin') && (await p.$$('#lead-list [data-lead]')).length === 0);
 
   await grabCsp();

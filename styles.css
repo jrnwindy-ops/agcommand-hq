@@ -1,34 +1,49 @@
+/* Fonts and colors match agcommand.net. Fonts are served from /fonts
+   (SIL Open Font License, see fonts/LICENSE-*.txt): Cinzel for the wordmark,
+   DM Serif Display for headings, Hanken Grotesk for everything else. */
+@font-face{font-family:'Cinzel';src:url(fonts/cinzel-latin-600-normal.woff2) format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:'DM Serif Display';src:url(fonts/dm-serif-display-latin-400-normal.woff2) format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'Hanken Grotesk';src:url(fonts/hanken-grotesk-latin-400-normal.woff2) format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'Hanken Grotesk';src:url(fonts/hanken-grotesk-latin-500-normal.woff2) format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Hanken Grotesk';src:url(fonts/hanken-grotesk-latin-600-normal.woff2) format('woff2');font-weight:600;font-display:swap}
+@font-face{font-family:'Hanken Grotesk';src:url(fonts/hanken-grotesk-latin-700-normal.woff2) format('woff2');font-weight:700;font-display:swap}
 :root{
-  --bg:#F3F5F4; --surf:#FFFFFF; --surf2:#F8FAF9; --tx:#15201B; --tx2:#3E4B45; --tx3:#5F6D66; --bd:#DCE3DF;
-  --brand:#1F5E46; --brand-tx:#1F5E46; --brand-on:#FFFFFF; --accent:#B8860B;
-  --ok:#1E7A45; --ok-bg:#E6F4EC; --warn:#8A5A12; --warn-bg:#FDF3E1; --bad:#B03A2E; --bad-bg:#FBE9E7; --idle:#4F5A62; --idle-bg:#EEF1F3;
-  --sh:0 1px 3px rgba(0,0,0,.08); --r:12px;
+  /* website palette: cream, ink, pine, moss, gold, red */
+  --bg:#F4EDDC; --surf:#FFFCF5; --surf2:#FAF5EA; --tx:#26301F; --tx2:#4E5749; --tx3:#5E6555; --bd:#DDD3BC;
+  --brand:#2E4D3A; --brand-tx:#2E4D3A; --brand-on:#FFFCF5; --accent:#C9A35B;
+  --primary:#A8232A; --primary-dk:#8B1A20; --primary-on:#FFFFFF;
+  --head-bg:#152116; --head-tx:#F4EDDC; --head-tx2:#C8C2AE; --head-bd:#2E4D3A;
+  --ok:#2B6A41; --ok-bg:#E2EDDA; --warn:#7E5410; --warn-bg:#F5E6C4; --bad:#9E2128; --bad-bg:#F6DFD9; --idle:#4E5749; --idle-bg:#E9E3D3;
+  --serif:'DM Serif Display',Georgia,serif; --sans:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --sh:0 1px 3px rgba(38,48,31,.10); --r:12px;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#0F1512; --surf:#18211D; --surf2:#1D2723; --tx:#E8EEEA; --tx2:#C3CEC8; --tx3:#9DAAA3; --bd:#2C3833;
-    --brand:#3E9B74; --brand-tx:#7FD1AC; --brand-on:#0B1410; --accent:#E3B34A;
-    --ok:#6FD39A; --ok-bg:#16301F; --warn:#F0C06A; --warn-bg:#33280F; --bad:#FF9C8F; --bad-bg:#3A1A16; --idle:#B8C3CA; --idle-bg:#252D32;
+    --bg:#0F1811; --surf:#1C2B1E; --surf2:#223325; --tx:#F4EDDC; --tx2:#DCD3BE; --tx3:#A9AE9C; --bd:#34473A;
+    --brand:#C9A35B; --brand-tx:#D9B873; --brand-on:#152116; --accent:#C9A35B;
+    --primary:#B8333A; --primary-dk:#A8232A; --primary-on:#FFFFFF;
+    --head-bg:#0A120B; --head-tx:#F4EDDC; --head-tx2:#A9AE9C; --head-bd:#2E4D3A;
+    --ok:#8FD3A2; --ok-bg:#1E3626; --warn:#F0C06A; --warn-bg:#3A2E12; --bad:#FF9C8F; --bad-bg:#3D1A17; --idle:#C9C3B2; --idle-bg:#2A3529;
     --sh:0 1px 3px rgba(0,0,0,.5);
   }
 }
 *{box-sizing:border-box}
 html,body{margin:0}
-body{background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{background:var(--bg);color:var(--tx);font:15px/1.45 var(--sans)}
 [hidden]{display:none !important}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;background:var(--surf);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
-.brand{font-size:17px;letter-spacing:.01em}.brand b{color:var(--brand-tx)}.mark{color:var(--accent)}
-.top-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.who{font-size:13px;color:var(--tx3)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;background:var(--head-bg);color:var(--head-tx);border-bottom:1px solid var(--head-bd);position:sticky;top:0;z-index:5}
+.brand{display:flex;align-items:center;gap:10px;color:var(--head-tx);white-space:nowrap}.brand .mark{width:34px;height:32px;flex:none}.brand .word{font-family:'Cinzel',var(--serif);font-weight:600;font-size:20px;letter-spacing:.07em;text-transform:uppercase;line-height:1}.brand b{font-family:var(--sans);font-weight:700;font-size:13px;letter-spacing:.12em;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:2px 6px}
+.top-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.who{font-size:13px;color:var(--head-tx2)}.top .btn.ghost{color:var(--head-tx);border-color:var(--head-bd)}
 main{max-width:1200px;margin:0 auto;padding:20px 16px 60px}
-h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:0 0 12px}
+h1{font-family:var(--serif);font-weight:400;font-size:26px;margin:0 0 4px;letter-spacing:.01em}h2{font-family:var(--serif);font-weight:400;font-size:22px;margin:0 0 12px}
 .muted{color:var(--tx3)}.small{font-size:13px}.note{font-size:13px;color:var(--tx3);margin:10px 2px 0}
 .card{background:var(--surf);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--sh);padding:20px}
 .auth{display:flex;justify-content:center;padding-top:8vh}.auth-card{width:100%;max-width:380px;display:flex;flex-direction:column;gap:12px}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--tx2)}
 input,select,textarea{font:inherit;color:var(--tx);background:var(--surf2);border:1px solid var(--bd);border-radius:8px;padding:9px 10px;width:100%}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:0}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0}
 .btn{font:inherit;font-weight:600;border-radius:8px;padding:9px 14px;border:1px solid var(--bd);background:var(--surf);color:var(--tx);cursor:pointer}
-.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-on)}.btn.ghost{background:transparent}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-on)}.btn.primary:hover{background:var(--primary-dk)}.btn.ghost{background:transparent}
 .btn:disabled{opacity:.6;cursor:default}
 .msg{min-height:18px;font-size:13px;color:var(--bad);font-weight:600}
 code{background:var(--surf2);border:1px solid var(--bd);padding:1px 5px;border-radius:5px;word-break:break-all}
@@ -60,8 +75,8 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 /* ── tabs ── */
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin:-4px 0 18px}
 .tab{font:inherit;font-weight:700;font-size:15px;background:transparent;border:none;border-bottom:3px solid transparent;color:var(--tx3);padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:6px}
-.tab[aria-selected="true"]{color:var(--brand-tx);border-bottom-color:var(--brand)}
-.badge{background:var(--bad);color:var(--surf);font-size:11px;font-weight:700;border-radius:9px;min-width:18px;padding:1px 6px;text-align:center}
+.tab[aria-selected="true"]{color:var(--tx);border-bottom-color:var(--accent)}
+.badge{background:var(--primary);color:var(--primary-on);font-size:11px;font-weight:700;border-radius:9px;min-width:18px;padding:1px 6px;text-align:center}
 /* ── chips: tap targets in place of dropdowns ── */
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:6px 12px;border-radius:18px;border:1px solid var(--bd);background:var(--surf);color:var(--tx2);cursor:pointer}
@@ -125,3 +140,12 @@ a.btn{text-decoration:none;display:inline-block}
 .fu-web b{color:var(--brand-tx)}
 .web-kv dd{overflow-wrap:anywhere;white-space:pre-wrap}
 .mt0{margin-top:0}.mt8{margin-top:8px}.mt10{margin-top:10px}
+/* sign-in card */
+.auth-logo{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:4px}
+.auth-logo img{width:64px;height:60px}
+.auth-logo .word{font-family:'Cinzel',var(--serif);font-weight:600;font-size:22px;letter-spacing:.07em;text-transform:uppercase}
+.auth-card h1{text-align:center}.auth-card > p{text-align:center}
+@media (max-width:420px){ .brand .word{font-size:17px} .brand .mark{width:28px;height:26px} .who{display:none} }
+@media (max-width:640px){ .top-right{flex-wrap:nowrap;gap:6px} .top .btn{padding:6px 10px;font-size:13px} }
+.top .btn{white-space:nowrap}
+@media (max-width:420px){ .top{padding:8px 12px} .brand{gap:7px} .brand .word{font-size:16px;letter-spacing:.05em} .brand b{font-size:11px;padding:1px 5px} }

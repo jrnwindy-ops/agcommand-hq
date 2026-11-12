@@ -19,7 +19,8 @@ const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
   if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
   const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
-  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
+  const TYPES = {'.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.woff2':'font/woff2'};
+  r.writeHead(200, {'content-type': TYPES[path.extname(f)] || 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
 }).listen(8766);
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
