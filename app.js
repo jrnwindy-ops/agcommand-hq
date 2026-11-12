@@ -52,7 +52,7 @@ $('form-signin').addEventListener('submit', async (e) => {
   if(error){ $('signin-msg').textContent = /fetch|network/i.test(error.message) ? 'Could not reach the server.' : 'That email or password is not right.'; return; }
   route();
 });
-const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null}; closeDrawer(); route(); };
+const signOut = async () => { await sb.auth.signOut(); STATE = {rows: [], collectors: {}, session: null}; closeDrawer(); document.dispatchEvent(new Event('hq:signout')); route(); };
 $('btn-signout').addEventListener('click', signOut);
 $('btn-denied-out').addEventListener('click', signOut);
 $('btn-refresh').addEventListener('click', () => load());
@@ -69,7 +69,29 @@ async function load(){
   STATE.collectors = Object.fromEntries((cs.data || []).map(c => [c.tenant_id, c]));
   $('load-msg').textContent = 'Updated ' + new Date().toLocaleTimeString() + '. Metrics are collected nightly at 3:15 am Pacific.';
   renderToday(); renderTable();
+  document.dispatchEvent(new Event('hq:loaded'));
 }
+
+// ── tabs ────────────────────────────────────────────────────────────────────
+function setTab(t){
+  if(t !== 'sales') t = 'clients';
+  ['clients','sales'].forEach(x => {
+    $('tab-' + x).hidden = x !== t;
+    $('tabbtn-' + x).setAttribute('aria-selected', String(x === t));
+  });
+  if(location.hash !== '#' + t) history.replaceState(null, '', '#' + t);
+  document.dispatchEvent(new CustomEvent('hq:tab', {detail: t}));
+}
+document.querySelectorAll('.tabs .tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+setTab((location.hash || '').slice(1));
+
+// Prospects are companies still in the sales pipeline; hidden from Clients unless asked.
+let SHOW_PROSPECTS = false;
+$('chip-prospects').addEventListener('click', () => {
+  SHOW_PROSPECTS = !SHOW_PROSPECTS;
+  $('chip-prospects').setAttribute('aria-pressed', String(SHOW_PROSPECTS));
+  renderTable();
+});
 
 const STATUS = {prospect:['Prospect','p-idle'], onboarding:['Onboarding','p-idle'], pilot:['Pilot','p-warn'], active:['Active','p-ok'], paused:['Paused','p-warn'], churned:['Churned','p-bad']};
 const HEALTH = {ok:['OK','p-ok'], app_quiet:['App quiet','p-warn'], stale:['Stale','p-warn'], error:['Error','p-bad'], not_connected:['Not connected','p-idle']};
@@ -102,8 +124,11 @@ function revenueCell(r){
 }
 function renderTable(){
   const tb = document.querySelector('#client-table tbody');
-  if(!STATE.rows.length){ tb.innerHTML = `<tr><td colspan="8" class="muted">No clients yet. Add one to start.</td></tr>`; return; }
-  tb.innerHTML = STATE.rows.map(r => `<tr tabindex="0" data-t="${esc(r.tenant_id)}">
+  const rows = STATE.rows.filter(r => SHOW_PROSPECTS || r.status !== 'prospect');
+  const hidden = STATE.rows.length - rows.length;
+  $('chip-prospects').textContent = hidden || SHOW_PROSPECTS ? `Show prospects (${STATE.rows.filter(r => r.status === 'prospect').length})` : 'Show prospects';
+  if(!rows.length){ tb.innerHTML = `<tr><td colspan="8" class="muted">${hidden ? 'Only prospects so far. They are in Sales.' : 'No clients yet. Add one to start.'}</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => `<tr tabindex="0" data-t="${esc(r.tenant_id)}">
     <td><b>${esc(r.display_name)}</b><span class="id">${esc(r.tenant_id)}</span></td>
     <td>${pill(STATUS, r.status)}</td>
     <td class="n">${num(r.acres_managed, 1)}</td>
@@ -120,6 +145,7 @@ function renderTable(){
 
 // ── client detail ───────────────────────────────────────────────────────────
 function closeDrawer(){ $('drawer').hidden = true; }
+function openDrawer(html){ $('drawer-body').innerHTML = html; $('drawer').hidden = false; $('drawer').querySelector('.drawer-inner').scrollTop = 0; }
 $('drawer-close').addEventListener('click', closeDrawer);
 $('drawer').addEventListener('click', (e) => { if(e.target === $('drawer')) closeDrawer(); });
 document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeDrawer(); });
@@ -255,6 +281,11 @@ $('btn-add').addEventListener('click', async () => {
     toast('Created ' + data.tenant_id); await load(); openClient(data.tenant_id);
   });
 });
+
+// Shared with sales.js. The database decides what an account may see; this only
+// saves the second file from setting up its own connection.
+window.HQ = {sb, $, esc, num, money, when, stamp, toast, openDrawer, closeDrawer, plans,
+             rows: () => STATE.rows, reload: () => load(), openClient};
 
 sb.auth.onAuthStateChange((ev) => { if(ev === 'SIGNED_OUT') route(); });
 route();

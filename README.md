@@ -22,9 +22,12 @@ Supabase project.
 | Path | What |
 |---|---|
 | `index.html`, `app.js`, `styles.css`, `config.js` | The console (static site) |
+| `sales.js` | The Sales tab: leads, follow-ups, activity log |
 | `_headers`, `_redirects`, `robots.txt` | Strict CSP, no framing, no indexing; operator files not served |
 | `supabase/migrations/0001_hq_core.sql` | Tenants (permanent `TNT-####` IDs), pricing plans, collections, snapshots, metric time series, overview view, access rules |
 | `supabase/migrations/0002_schedule.sql` | Nightly collection at 03:15 Pacific (pg_cron + pg_net) |
+| `supabase/migrations/0004_crm.sql` | Sales CRM: leads (`LD-####`), activity log, website intake |
+| `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
 | `supabase/functions/collect/index.ts` | The collector |
 | `setup/` | One-time configuration and how to connect a client database |
 | `tests/` | Console tests against a mocked backend |
@@ -51,3 +54,21 @@ schema change.
 
 Individual user sign-in is not enabled in the customer app yet (one shared
 account per client), so HQ does not show user counts.
+
+## Sales
+
+* A lead's company is a row in `tenants` (status **Prospect**), so there is one
+  list of companies. Prospects are hidden on Clients unless "Show prospects" is on.
+* Marking a lead **Won** moves its company to **Onboarding**. **Lost** needs a reason.
+* Each stage change is logged automatically. Logging a call, email, text or meeting
+  on a **New** lead moves it to **Contacted**.
+* Overdue and due-today follow-ups count by the Pacific calendar day; the number
+  shows on the Sales tab.
+* No lead or contact data is ever written to this repository. Tests use made-up names.
+
+## Tests
+
+```
+SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/console.test.js
+SUPABASE_JS=/path/to/supabase-js@2.117.2/dist/umd/supabase.js node tests/sales.test.js   # exits 1 on failure
+```

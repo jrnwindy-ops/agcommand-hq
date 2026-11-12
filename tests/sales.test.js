@@ -1,0 +1,223 @@
+/* Sales tab test against a mocked HQ backend (made-up data only).
+   Run: node tests/sales.test.js  (serves this folder on :8767; needs Playwright
+   and a local copy of supabase-js 2.117.2 at $SUPABASE_JS). Exits 1 on any failure. */
+const { chromium } = require(process.env.PW || 'playwright');
+const http = require('http'), fs = require('fs'), path = require('path');
+const ROOT = path.join(__dirname, '..'), SUPA = process.env.SUPABASE_JS;
+const HQ = 'https://hqtest.supabase.co';
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const jwt = () => b64({alg:'HS256',typ:'JWT'}) + '.' + b64({sub:'u1', aal:'aal1', exp: Math.floor(Date.now()/1000)+3600, role:'authenticated', email:'owner@x.com'}) + '.sig';
+const user = {id:'u1', email:'owner@x.com', aud:'authenticated', role:'authenticated'};
+const session = () => ({access_token: jwt(), token_type:'bearer', expires_in:3600, expires_at: Math.floor(Date.now()/1000)+3600, refresh_token:'r', user});
+
+const dayOf = (d = new Date()) => new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Los_Angeles'}).format(d);
+const addDays = (ymd, n) => { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const TODAY = dayOf();
+
+// ── in-memory backend ──────────────────────────────────────────────────────
+const TENANTS = [
+  {tenant_id:'TNT-0001', display_name:'Sample Ranch Co.', status:'active', mrr:100, acres_managed:100, health:'ok'},
+  {tenant_id:'TNT-0002', display_name:'Example Vineyards', status:'prospect', health:'not_connected'},
+  {tenant_id:'TNT-0003', display_name:'Demo Orchards <img src=x onerror=alert(1)>', status:'prospect', health:'not_connected'},
+  {tenant_id:'TNT-0004', display_name:'Test Farms', status:'prospect', health:'not_connected'},
+];
+const LEADS = {
+  'LD-0001': {lead_id:'LD-0001', tenant_id:'TNT-0002', contact_name:'Pat Example', contact_role:'Office manager', phone:'(555) 010-2000', email:'pat@example.com', language:'en', acres_range:'500_2000', crops:['Wine grapes'], interests:['work_orders','pur'], source:'website', stage:'new', next_step:'Call back about a demo', next_step_date: addDays(TODAY, -2)},
+  'LD-0002': {lead_id:'LD-0002', tenant_id:'TNT-0003', contact_name:'Lee Sample', language:'es', acres_range:'2000_5000', crops:[], interests:[], source:'referral', stage:'demo_scheduled', next_step:'Demo', next_step_date: TODAY},
+  'LD-0003': {lead_id:'LD-0003', tenant_id:'TNT-0004', contact_name:'Sam Test', language:'en', crops:[], interests:[], source:'event', stage:'lost', lost_reason:'timing', next_step_date: addDays(TODAY, -9)},
+};
+const ACTS = [{id:1, lead_id:'LD-0001', kind:'stage', happened_at:new Date(Date.now()-3*864e5).toISOString(), detail:{from:null, to:'new'}}];
+const OPEN = ['new','contacted','demo_scheduled','demo_done','proposal_sent'];
+function overview(){
+  return Object.values(LEADS).map(l => {
+    const t = TENANTS.find(x => x.tenant_id === l.tenant_id);
+    const due = !OPEN.includes(l.stage) || !l.next_step_date ? 'none' : l.next_step_date < TODAY ? 'overdue' : l.next_step_date === TODAY ? 'today' : 'upcoming';
+    return {...l, company: t.display_name, tenant_status: t.status, region: t.region || null, due_state: due, updated_at: new Date().toISOString()};
+  });
+}
+const writes = [];   // [method, path, body]
+
+const srv = http.createServer((q, r) => {
+  let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
+  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript'}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
+  const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
+  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html'}); r.end(fs.readFileSync(f));
+}).listen(8767);
+
+let fails = 0;
+const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + name + (ok || extra === undefined ? '' : '  → ' + JSON.stringify(extra))); if(!ok) fails++; };
+
+(async () => {
+  const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  let dialogs = 0; p.on('dialog', d => { dialogs++; d.accept(); });
+  const CORS = {'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*','content-type':'application/json'};
+  const ok = (route, body, status = 200) => route.fulfill({status, headers: CORS, body: JSON.stringify(body)});
+  await ctx.route(/cdn\.jsdelivr\.net/, r => r.fulfill({body: fs.readFileSync(SUPA), contentType: 'application/javascript'}));
+  await ctx.route(/hqtest\.supabase\.co/, async (route) => {
+    const q = route.request(); const u = new URL(q.url()); const m = q.method(); const pth = u.pathname;
+    if(m === 'OPTIONS') return route.fulfill({status: 204, headers: CORS});
+    const body = (() => { try { return q.postDataJSON(); } catch(e){ return null; } })();
+    if(m !== 'GET' && !pth.startsWith('/auth/')) writes.push([m, pth + u.search, body]);
+    const eqv = (k) => (u.searchParams.get(k) || '').replace(/^eq\./, '');
+    if(pth === '/auth/v1/token') return ok(route, session());
+    if(pth === '/auth/v1/user') return ok(route, user);
+    if(pth === '/auth/v1/logout') return route.fulfill({status: 204, headers: CORS});
+    if(pth === '/rest/v1/rpc/hq_account_status') return ok(route, {approved: true});
+    if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, []);
+    if(pth === '/rest/v1/tenant_overview') return ok(route, TENANTS);
+    if(pth === '/rest/v1/pricing_plans') return ok(route, []);
+    if(pth === '/rest/v1/crm_lead_overview') return ok(route, overview());
+    if(pth === '/rest/v1/crm_activities' && m === 'GET') return ok(route, ACTS.filter(a => a.lead_id === eqv('lead_id')).sort((a, b) => b.happened_at.localeCompare(a.happened_at)));
+    if(pth === '/rest/v1/crm_activities' && m === 'POST'){ ACTS.push({id: ACTS.length + 1, ...body}); return ok(route, null, 201); }
+    if(pth === '/rest/v1/crm_leads' && m === 'PATCH'){
+      const l = LEADS[eqv('lead_id')];
+      if(body.stage && body.stage !== l.stage) ACTS.push({id: ACTS.length + 1, lead_id: l.lead_id, kind:'stage', happened_at: new Date().toISOString(), detail:{from: l.stage, to: body.stage, lost_reason: body.lost_reason}});
+      Object.assign(l, body);
+      if(body.stage === 'won'){ const t = TENANTS.find(x => x.tenant_id === l.tenant_id); if(t.status === 'prospect') t.status = 'onboarding'; }
+      return ok(route, null, 204);
+    }
+    if(pth === '/rest/v1/tenants' && m === 'PATCH'){ Object.assign(TENANTS.find(x => x.tenant_id === eqv('tenant_id')), body); return ok(route, null, 204); }
+    if(pth === '/rest/v1/rpc/crm_create_lead'){
+      const tid = body.p_tenant || 'TNT-000' + (TENANTS.length + 1);
+      if(!body.p_tenant) TENANTS.push({tenant_id: tid, display_name: body.p_company, status: 'prospect', health:'not_connected'});
+      const id = 'LD-000' + (Object.keys(LEADS).length + 1);
+      LEADS[id] = {lead_id: id, tenant_id: tid, stage: 'new', crops: [], interests: [], ...body.p_lead};
+      return ok(route, id);
+    }
+    return ok(route, {error:'unmocked ' + pth}, 404);
+  });
+  const W = () => p.waitForTimeout(450);
+  const txt = async (sel) => (await p.innerText(sel)).replace(/\s+/g, ' ').trim();
+  const lastWrite = (m, prefix) => [...writes].reverse().find(w => w[0] === m && w[1].startsWith(prefix));
+
+  console.log('Sign-in and Clients');
+  await p.goto('http://localhost:8767/'); await W();
+  await p.fill('#in-email', 'owner@x.com'); await p.fill('#in-pass', 'right'); await p.click('#btn-signin'); await p.waitForTimeout(900);
+  check('dashboard shown', await p.isVisible('#screen-app'));
+  check('opens on Clients', await p.isVisible('#tab-clients') && !(await p.isVisible('#tab-sales')));
+  const tb = await txt('#client-table tbody');
+  check('prospects hidden from Clients', tb.includes('Sample Ranch') && !tb.includes('Example Vineyards'), tb);
+  check('prospects chip shows count', (await txt('#chip-prospects')) === 'Show prospects (3)', await txt('#chip-prospects'));
+  await p.click('#chip-prospects'); await W();
+  check('prospects shown on tap', (await txt('#client-table tbody')).includes('Example Vineyards'));
+  check('Sales badge counts overdue + due today', (await txt('#sales-badge')) === '2', await txt('#sales-badge'));
+
+  console.log('Sales list');
+  await p.click('#tabbtn-sales'); await W();
+  check('Sales tab shown', await p.isVisible('#tab-sales') && !(await p.isVisible('#tab-clients')));
+  check('address remembers tab', p.url().endsWith('#sales'));
+  check('follow-up counts', (await txt('#followups')) === '1 Overdue 1 Due today', await txt('#followups'));
+  const ids = await p.$$eval('#lead-list [data-lead]', els => els.map(e => e.dataset.lead));
+  check('open leads only, overdue first', JSON.stringify(ids) === '["LD-0001","LD-0002"]', ids);
+  check('overdue shown in words', (await txt('[data-lead="LD-0001"] .next')).startsWith('2 days overdue'), await txt('[data-lead="LD-0001"] .next'));
+  check('company name escaped', await p.$eval('[data-lead="LD-0002"] .co', e => !e.querySelector('img') && e.textContent.includes('<img')));
+  check('Spanish speaker marked', (await txt('[data-lead="LD-0002"] .who2')).includes('ES'));
+  await p.click('#f-stage [data-stage="all"]'); await W();
+  check('All shows lost lead', (await p.$$('#lead-list [data-lead]')).length === 3);
+  await p.click('#f-stage [data-stage="open"]'); await p.click('#followups [data-due="overdue"]'); await W();
+  check('Overdue filter', JSON.stringify(await p.$$eval('#lead-list [data-lead]', els => els.map(e => e.dataset.lead))) === '["LD-0001"]');
+  await p.click('#followups [data-due="overdue"]'); await p.fill('#f-search', 'lee sample'); await W();
+  check('search', JSON.stringify(await p.$$eval('#lead-list [data-lead]', els => els.map(e => e.dataset.lead))) === '["LD-0002"]');
+  await p.fill('#f-search', ''); await p.click('#f-source [data-source="referral"]'); await W();
+  check('source filter', JSON.stringify(await p.$$eval('#lead-list [data-lead]', els => els.map(e => e.dataset.lead))) === '["LD-0002"]');
+  await p.click('#f-source [data-source="all"]'); await W();
+
+  console.log('Lead detail');
+  await p.click('[data-lead="LD-0001"]'); await W();
+  const d = await txt('#drawer-body');
+  check('detail header', d.startsWith('Example Vineyards LD-0001 · TNT-0002 · New'), d.slice(0, 80));
+  check('call / text / email links', await p.$eval('#drawer-body', e => !!e.querySelector('a[href="tel:5550102000"]') && !!e.querySelector('a[href="sms:5550102000"]') && !!e.querySelector('a[href="mailto:pat@example.com"]')));
+  check('history shows start', d.includes('Started at New'));
+
+  // log a call on a new lead → logged, and the lead moves to Contacted
+  await p.click('#l-log .chip[data-v="call"]'); // already selected: tapping keeps one choice
+  check('kind chip stays selected', await p.$eval('#l-log .chips', g => [...g.querySelectorAll('[aria-pressed="true"]')].map(x => x.dataset.v).join()) === 'call');
+  await p.fill('#l-log [name=summary]', 'Talked about work orders and PUR. Wants a demo next week.'); await p.click('#l-log button[type=submit]'); await p.waitForTimeout(900);
+  const aw = lastWrite('POST', '/rest/v1/crm_activities');
+  check('call logged', aw && aw[2].kind === 'call' && aw[2].lead_id === 'LD-0001' && /work orders/.test(aw[2].summary) && !isNaN(Date.parse(aw[2].happened_at)), aw);
+  check('first contact moves to Contacted', LEADS['LD-0001'].stage === 'contacted');
+  const d2 = await txt('#drawer-body');
+  check('history shows the call and the move', d2.includes('Talked about work orders') && d2.includes('New → Contacted'), d2.slice(d2.indexOf('HISTORY'), d2.indexOf('HISTORY') + 200));
+
+  // next step with a quick-date chip
+  await p.fill('#l-next [name=next_step]', 'Send demo times'); await p.click('#l-next .quick [data-add="7"]');
+  check('1 week fills the date', (await p.inputValue('#l-next [name=next_step_date]')) === addDays(TODAY, 7));
+  await p.click('#l-next button[type=submit]'); await p.waitForTimeout(800);
+  const nw = lastWrite('PATCH', '/rest/v1/crm_leads');
+  check('next step saved', nw[2].next_step === 'Send demo times' && nw[2].next_step_date === addDays(TODAY, 7) && nw[2].demo_at === null, nw);
+  check('no longer overdue', (await txt('#followups')) === '0 Overdue 1 Due today', await txt('#followups'));
+
+  // details: chips and the company name (which lives on the client record)
+  await p.click('#l-details .chip[data-v="irrigation"]'); await p.click('#l-details .chip[data-v="pur"]');
+  await p.click('#l-details .chips[data-group="language"] .chip[data-v="es"]');
+  await p.fill('#l-details [name=company]', 'Example Vineyards LLC'); await p.fill('#l-details [name=crops]', 'Wine grapes,  olives ,');
+  await p.click('#l-details button[type=submit]'); await p.waitForTimeout(900);
+  const dw = lastWrite('PATCH', '/rest/v1/crm_leads'), tw = lastWrite('PATCH', '/rest/v1/tenants');
+  check('details saved', JSON.stringify(dw[2].interests) === '["work_orders","irrigation"]' && dw[2].language === 'es' && JSON.stringify(dw[2].crops) === '["Wine grapes","olives"]', dw[2]);
+  check('company renamed on the client record', tw && tw[1].includes('TNT-0002') && tw[2].display_name === 'Example Vineyards LLC', tw);
+  const nWrites = writes.length;
+  await p.fill('#l-details [name=email]', 'not-an-email'); await p.click('#l-details button[type=submit]'); await W();
+  check('bad email refused', writes.length === nWrites && !(await p.$eval('#l-details [name=email]', e => e.checkValidity())));
+  await p.fill('#l-details [name=email]', 'pat@example.com');
+
+  // lost needs a reason
+  await p.click('#drawer-body .chips[data-group="stage"] .chip[data-v="lost"]'); await W();
+  check('lost asks for a reason', await p.isVisible('#l-lost'));
+  const before = writes.length;
+  await p.click('#l-lost-save'); await W();
+  check('no reason → not saved', writes.length === before && (await txt('#toast')).includes('reason'));
+  await p.click('#l-lost .chip[data-v="price"]'); await p.fill('#l-lost-note', 'Revisit after harvest'); await p.click('#l-lost-save'); await p.waitForTimeout(900);
+  const lw = lastWrite('PATCH', '/rest/v1/crm_leads');
+  check('marked lost with reason', lw[2].stage === 'lost' && lw[2].lost_reason === 'price' && lw[2].lost_note === 'Revisit after harvest', lw[2]);
+  check('history shows reason', (await txt('#drawer-body')).includes('Contacted → Lost (Price)'));
+
+  // won asks first, then the company becomes a client
+  await p.click('#drawer-body .chips[data-group="stage"] .chip[data-v="won"]'); await p.waitForTimeout(1200);
+  check('won asked to confirm', dialogs === 1);
+  check('marked won', LEADS['LD-0001'].stage === 'won' && TENANTS[1].status === 'onboarding');
+  await p.click('#drawer-close'); await p.click('#tabbtn-clients'); await W();
+  check('won company now in Clients', (await txt('#client-table tbody')).includes('Example Vineyards LLC'));
+  await p.click('#tabbtn-sales'); await W();
+
+  console.log('Add lead');
+  await p.click('#btn-add-lead'); await W();
+  await p.fill('#n-form [name=company]', 'New Valley Growers');
+  check('new company noted', (await txt('#n-match')).startsWith('New company'));
+  await p.click('#n-form button[type=submit]'); await W();
+  check('source required', (await txt('#toast')).includes('how they found us'));
+  await p.click('#n-form .chips[data-group="source"] .chip[data-v="referral"]');
+  await p.click('#n-form .chips[data-group="acres_range"] .chip[data-v="under_500"]');
+  await p.fill('#n-form [name=contact_name]', 'Alex Newman');
+  await p.click('#n-form button[type=submit]'); await p.waitForTimeout(1200);
+  const cw = lastWrite('POST', '/rest/v1/rpc/crm_create_lead');
+  check('new company lead created', cw[2].p_company === 'New Valley Growers' && cw[2].p_tenant === null && cw[2].p_lead.source === 'referral' && cw[2].p_lead.acres_range === 'under_500' && cw[2].p_lead.next_step_date === addDays(TODAY, 1), cw[2]);
+  check('opens the new lead', (await txt('#drawer-body')).startsWith('New Valley Growers LD-0004'));
+  await p.click('#drawer-close'); await p.click('#btn-add-lead'); await W();
+  await p.fill('#n-form [name=company]', 'sample ranch co.');
+  check('existing company matched', (await txt('#n-match')).includes('TNT-0001'));
+  await p.click('#n-form .chips[data-group="source"] .chip[data-v="call_in"]'); await p.click('#n-form button[type=submit]'); await p.waitForTimeout(1000);
+  const cw2 = lastWrite('POST', '/rest/v1/rpc/crm_create_lead');
+  check('linked to existing company', cw2[2].p_tenant === 'TNT-0001' && cw2[2].p_company === null, cw2[2]);
+  await p.click('#drawer-close');
+
+  console.log('Phone');
+  await p.setViewportSize({width: 390, height: 844}); await p.reload(); await p.waitForTimeout(1500);
+  check('reload on #sales opens Sales', await p.isVisible('#tab-sales') && (await p.$$('#lead-list [data-lead]')).length > 0);
+  const over = async () => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check('no sideways scroll (list)', (await over()) <= 0, await over());
+  await p.click('[data-lead="LD-0002"]'); await W();
+  check('no sideways scroll (lead)', (await p.$eval('.drawer-inner', e => e.scrollWidth - e.clientWidth)) <= 0);
+  check('chips are tap-sized', (await p.$eval('#l-log .chip', e => e.getBoundingClientRect().height)) >= 36);
+  await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-lead.png'), fullPage: false});
+  await p.click('#drawer-close');
+  await p.screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-list.png'), fullPage: true});
+
+  console.log('Sign out');
+  await p.click('#btn-signout'); await p.waitForTimeout(900);
+  check('signed out clears leads', await p.isVisible('#form-signin') && (await p.$$('#lead-list [data-lead]')).length === 0);
+
+  check('no page errors', errs.length === 0, errs);
+  console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
+  await b.close(); srv.close(); process.exit(fails ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });

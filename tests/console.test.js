@@ -41,6 +41,7 @@ const srv = http.createServer((q, r) => {
     if(pth === '/rest/v1/rpc/hq_collector_status') return ok(route, [{tenant_id:'TNT-0001', endpoint:'https://clienttest.supabase.co', enabled:true}]);
     if(pth === '/rest/v1/rpc/hq_set_collector') return ok(route, null);
     if(pth === '/rest/v1/tenant_overview') return ok(route, ROWS);
+    if(pth === '/rest/v1/crm_lead_overview') return ok(route, []);
     if(pth === '/rest/v1/pricing_plans') return ok(route, [{plan_id:'ACRE-TIER-2026', name:'Per acre per month — graduated', tiers:[]}]);
     if(pth === '/rest/v1/collections') return ok(route, [{started_at:new Date().toISOString(), trigger:'cron', status:'ok', schema_version:'2026.09.30.1', app_build:'b1'}, {started_at:new Date(Date.now()-864e5).toISOString(), trigger:'manual', status:'error', http_status:401, error:'not authorized'}]);
     if(pth === '/rest/v1/tenant_snapshots') return ok(route, {collected_at:new Date().toISOString(), payload:{metrics:{'acres.managed':582.93,'blocks.total':10}, modules:{check_ins:{total:20,last_30d:14,last_at:new Date().toISOString()}}}});
