@@ -285,7 +285,7 @@ $('btn-add').addEventListener('click', async () => {
 // Shared with sales.js. The database decides what an account may see; this only
 // saves the second file from setting up its own connection.
 window.HQ = {sb, $, esc, num, money, when, stamp, toast, openDrawer, closeDrawer, plans,
-             rows: () => STATE.rows, reload: () => load(), openClient};
+             rows: () => STATE.rows, plansList: () => PLANS, reload: () => load(), openClient};
 
 sb.auth.onAuthStateChange((ev) => { if(ev === 'SIGNED_OUT') route(); });
 route();

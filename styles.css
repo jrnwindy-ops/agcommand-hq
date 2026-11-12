@@ -97,3 +97,23 @@ a.btn{text-decoration:none;display:inline-block}
 .act .s{grid-column:1 / -1;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .act-stage .k,.act-intake .k{color:var(--tx3)}
 @media (max-width:640px){ .cards{grid-template-columns:1fr} .tab{flex:1;justify-content:center} .filters .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px} .chip{flex:none} }
+/* ── sales numbers ── */
+#sales-tiles{margin-bottom:10px}
+.breakdown{background:var(--surf);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:14px}
+.breakdown summary{cursor:pointer;padding:12px 16px;font-weight:700;color:var(--tx2);min-height:44px}
+.bd-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;padding:0 16px 14px}
+.bd-grid .full{grid-column:1 / -1;margin:6px 0 0}
+.bd h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);margin:4px 0 8px}
+.bars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bars li{display:grid;grid-template-columns:7.5em 1fr 2em;grid-template-areas:"l t n" ". x x";align-items:center;gap:0 8px;font-size:13px}
+.bl{grid-area:l;color:var(--tx2)}.bn{grid-area:n;text-align:right;font-weight:700;color:var(--tx)}
+.bx{grid-area:x;color:var(--tx3);font-size:12px}.bx:empty{display:none}
+.bt{grid-area:t;height:10px;display:block}
+.bf{display:block;height:10px;background:var(--brand);border-radius:0 4px 4px 0;min-width:0}
+/* ── proposal ── */
+.price{margin:8px 0}
+.price .lines{width:100%;border-collapse:collapse;font-size:14px}
+.price .lines td{border-bottom:1px solid var(--bd)}
+.price .tot td{border-top:2px solid var(--bd)}
+@media (max-width:640px){ .bd-grid{grid-template-columns:1fr} }
+.lines .n{text-align:right;white-space:nowrap}

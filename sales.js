@@ -6,7 +6,7 @@
 'use strict';
 const H = window.HQ;
 if(!H) return;                       // app.js did not start (not configured)
-const {sb, $, esc, toast} = H;
+const {sb, $, esc, toast, money, num} = H;
 
 // ── vocabularies (keys match the database checks) ───────────────────────────
 const STAGES = [['new','New'],['contacted','Contacted'],['demo_scheduled','Demo scheduled'],['demo_done','Demo done'],
@@ -44,6 +44,24 @@ function dueText(ymd){
 // <input type="datetime-local"> value for a moment, in this device's time zone.
 const localInput = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
 const shortStamp = (iso) => iso ? new Date(iso).toLocaleString('en-US', {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '—';
+
+// ── price: the same graduated rule as hq_tier_breakdown() in the database ──
+// Each tier's rate applies only to the acres inside that tier.
+function tierPrice(tiers, qty){
+  const lines = []; qty = Number(qty);
+  if(!(qty > 0) || !Array.isArray(tiers)) return {amount: 0, lines};
+  let lo = 0, total = 0;
+  for(const t of tiers){
+    const hi = t.up_to === null || t.up_to === undefined || t.up_to === '' ? null : Number(t.up_to);
+    const rate = Number(t.rate), n = Math.max(0, Math.min(qty, hi === null ? qty : hi) - lo);
+    if(n > 0){ lines.push({qty: n, rate, amount: Math.round(n * rate * 100) / 100}); total += n * rate; }
+    if(hi === null || qty <= hi) break;
+    lo = hi;
+  }
+  return {amount: Math.round(total * 100) / 100, lines};
+}
+const perMonth = (l) => l.est_monthly === null || l.est_monthly === undefined ? '' :
+  (l.est_basis === 'rough' ? '≈ ' : '') + money(l.est_monthly) + '/mo' + (l.est_basis === 'rough' ? ' (rough)' : '');
 
 // ── chips ───────────────────────────────────────────────────────────────────
 // A row of tap targets standing in for a dropdown. data-group names the field;
@@ -129,14 +147,55 @@ function render(){
   $('f-source').innerHTML = [['all','All sources'], ...SOURCES].filter(([k]) => k === 'all' || bySource(k)).map(([k, lbl]) =>
     `<button type="button" class="chip" data-source="${k}" aria-pressed="${F.source === k}">${esc(lbl)} <span class="ct">${bySource(k)}</span></button>`).join('');
 
+  renderNumbers();
   const rows = LEADS.filter(matches).sort(sortLeads);
   $('lead-list').innerHTML = rows.length ? rows.map(card).join('')
     : `<p class="muted empty">${LEADS.length ? 'No leads match these filters.' : 'No leads yet. Tap “+ Add lead” to add one.'}</p>`;
 }
+// ── numbers: all leads, whatever the filters ───────────────────────────────
+function bars(rows){
+  const max = Math.max(1, ...rows.map(r => r.n));
+  return `<ul class="bars">${rows.map(r =>
+    `<li title="${esc(r.label)}: ${r.n} lead${r.n === 1 ? '' : 's'}${r.extra ? ' · ' + esc(r.extra) : ''}">` +
+      `<span class="bl">${esc(r.label)}</span>` +
+      `<span class="bt"><span class="bf" style="width:${r.n ? Math.max(2, Math.round(r.n / max * 100)) : 0}%"></span></span>` +
+      `<span class="bn">${r.n}</span><span class="bx">${esc(r.extra || '')}</span></li>`).join('')}</ul>`;
+}
+function renderNumbers(){
+  const open = LEADS.filter(l => OPEN.has(l.stage));
+  const won = LEADS.filter(l => l.stage === 'won'), lost = LEADS.filter(l => l.stage === 'lost');
+  const sum = (ls) => ls.reduce((s, l) => s + Number(l.est_monthly || 0), 0);
+  const sent = open.filter(l => l.stage === 'proposal_sent');
+  const rough = open.filter(l => l.est_basis === 'rough').length;
+  const decided = won.length + lost.length;
+  const month = dayOf().slice(0, 7);
+  const newThisMonth = LEADS.filter(l => l.created_at && dayOf(new Date(l.created_at)).slice(0, 7) === month).length;
+  const noStep = open.filter(l => !l.next_step_date).length;
+  const tiles = [
+    ['Open leads', num(open.length), `${newThisMonth} new this month`],
+    ['Pipeline per month', money(sum(open)), `${money(sum(sent))} in proposals sent` + (rough ? ` · ${rough} rough` : '')],
+    ['Win rate', decided ? Math.round(won.length / decided * 100) + '%' : '—', decided ? `${won.length} won · ${lost.length} lost` : 'No leads won or lost yet'],
+    ['No next step', num(noStep), 'Open leads without a follow-up date'],
+  ];
+  $('sales-tiles').innerHTML = tiles.map(([l, v, s]) => `<div class="tile"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join('');
+  const byStage = STAGES.map(([k, lbl]) => {
+    const ls = LEADS.filter(l => l.stage === k);
+    return {label: lbl, n: ls.length, extra: OPEN.has(k) && sum(ls) > 0 ? money(sum(ls)) + '/mo' : ''};
+  });
+  const bySource = SOURCES.map(([k, lbl]) => {
+    const ls = LEADS.filter(l => l.source === k);
+    const w = ls.filter(l => l.stage === 'won').length, d = w + ls.filter(l => l.stage === 'lost').length;
+    return {label: lbl, n: ls.length, extra: d ? `${w} won · ${Math.round(w / d * 100)}% win rate` : ''};
+  }).filter(r => r.n);
+  $('sales-breakdown').innerHTML = LEADS.length
+    ? `<div class="bd"><h3>By stage</h3>${bars(byStage)}</div><div class="bd"><h3>By source</h3>${bars(bySource)}</div>` +
+      `<p class="small muted full">Monthly amounts are estimates: the proposal when there is one, otherwise a rough figure from the low end of the acre range. Win rate counts won ÷ (won + lost).</p>`
+    : '<p class="muted">Numbers appear once there are leads.</p>';
+}
 function card(l){
   const due = l.due_state === 'overdue' ? 'due-bad' : l.due_state === 'today' ? 'due-warn' : '';
   const who = [l.contact_name, l.contact_role].filter(Boolean).join(' · ');
-  const facts = [l.acres_range && ACRE[l.acres_range] + ' ac', l.region, SOURCE[l.source]].filter(Boolean).join(' · ');
+  const facts = [l.acres_range && ACRE[l.acres_range] + ' ac', l.region, SOURCE[l.source], l.stage !== 'lost' && perMonth(l)].filter(Boolean).join(' · ');
   return `<button type="button" class="lead" data-lead="${esc(l.lead_id)}">
     <div class="lead-top"><b class="co">${esc(l.company)}</b><span class="pill ${STAGE_PILL[l.stage] || 'p-idle'}">${esc(STAGE[l.stage] || l.stage)}</span></div>
     ${who ? `<div class="who2">${esc(who)}${l.language === 'es' ? ' <span class="lang">ES</span>' : ''}</div>` : ''}
@@ -172,6 +231,8 @@ async function openLead(id){
   openId = id;
   const {data: acts, error} = await sb.from('crm_activities').select('id,kind,happened_at,summary,detail').eq('lead_id', id).order('happened_at', {ascending: false}).limit(200);
   if(openId !== id) return;          // another lead was opened meanwhile
+  await H.plans();
+  if(openId !== id) return;
   const tel = telHref(l.phone), mail = okEmail(l.email) ? l.email : null;
   const today = dayOf();
   H.openDrawer(
@@ -207,6 +268,8 @@ async function openLead(id){
       `<label class="full" style="margin-top:8px">Notes<textarea name="summary" rows="3" placeholder="What was said, what they asked for" maxlength="4000"></textarea></label>` +
       `<div class="form-grid"><label>When<input type="datetime-local" name="happened_at" value="${esc(localInput())}"></label></div>` +
       `<div class="actions"><button class="btn primary" type="submit">Add to log</button></div></form>` +
+    // proposal
+    proposalForm(l) +
     // timeline
     `<div class="dsec"><h3>History</h3>` +
       (error ? `<p class="msg">Could not load the history: ${esc(error.message)}</p>`
@@ -216,6 +279,38 @@ async function openLead(id){
     detailsForm(l)
   );
   wireLead(l);
+}
+
+function activePlans(){ return (H.plansList() || []); }
+function proposalForm(l){
+  const plans = activePlans();
+  const plan = l.pricing_plan_id || (plans[0] && plans[0].plan_id) || null;
+  const hint = l.acres_range ? `Their acre range: ${ACRE[l.acres_range]}.` : '';
+  return `<form class="dsec" id="l-prop"><h3>Proposal</h3>` +
+    (plans.length ? `<p class="lbl" style="margin-top:0">Pricing plan</p>${chips('pricing_plan_id', plans.map(p => [p.plan_id, p.name]), plan, false, true)}` : '<p class="msg">No active pricing plan in HQ.</p>') +
+    `<div class="form-grid" style="margin-top:10px">` +
+      `<label>Acres to price<input name="proposal_acres" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_acres ?? '')}" placeholder="e.g. 1,200"></label>` +
+      `<label>Monthly minimum ($)<input name="proposal_minimum" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_minimum ?? '')}" placeholder="optional"></label>` +
+    `</div>${hint ? `<p class="small muted">${esc(hint)}</p>` : ''}` +
+    `<div id="l-price" class="price" aria-live="polite"></div>` +
+    `<div class="form-grid"><label>Proposal sent on<input name="proposal_sent_on" type="date" value="${esc(l.proposal_sent_on || '')}"></label></div>` +
+    `<div class="actions"><button class="btn primary" type="submit">Save proposal</button>` +
+      (OPEN.has(l.stage) && l.stage !== 'proposal_sent' ? `<button class="btn ghost" type="button" id="l-prop-sent">Save and mark Proposal sent</button>` : '') +
+    `</div></form>`;
+}
+function showPrice(form){
+  const plan = activePlans().find(p => p.plan_id === chipValue(form, 'pricing_plan_id'));
+  const acres = Number(form.elements.proposal_acres.value), min = Number(form.elements.proposal_minimum.value || 0);
+  const box = $('l-price');
+  if(!plan || !(acres > 0)){ box.innerHTML = '<p class="muted small">Enter acres to see the monthly price.</p>'; return; }
+  const bd = tierPrice(plan.tiers, acres), est = Math.max(bd.amount, min);
+  box.innerHTML = `<table class="lines"><tbody>` +
+    bd.lines.map(x => `<tr><td>${num(x.qty, 2)} ac</td><td>× ${money(x.rate, true)}</td><td class="n">${money(x.amount, true)}</td></tr>`).join('') +
+    `<tr><td colspan="2">Plan amount</td><td class="n">${money(bd.amount, true)}</td></tr>` +
+    (min ? `<tr><td colspan="2">Monthly minimum</td><td class="n">${money(min, true)}</td></tr>` : '') +
+    `<tr class="tot"><td colspan="2"><b>Estimated monthly</b></td><td class="n"><b>${money(est, true)}</b></td></tr>` +
+    `<tr><td colspan="2" class="muted">Per year</td><td class="n muted">${money(est * 12, true)}</td></tr>` +
+    `</tbody></table>`;
 }
 
 function detailsForm(l){
@@ -288,6 +383,28 @@ function wireLead(l){
   });
   const clr = $('l-next-clear');
   if(clr) clr.addEventListener('click', () => updateLead(id, {next_step: null, next_step_date: null}, 'Next step cleared'));
+
+  // proposal
+  const pf = $('l-prop');
+  const readProp = () => {
+    const n = (k) => { const v = pf.elements[k].value.trim(); return v === '' ? null : Number(v); };
+    return {pricing_plan_id: chipValue(pf, 'pricing_plan_id'), proposal_acres: n('proposal_acres'),
+            proposal_minimum: n('proposal_minimum'), proposal_sent_on: val(pf, 'proposal_sent_on')};
+  };
+  const propOk = (p) => {
+    if(p.proposal_acres !== null && !(p.proposal_acres >= 0)){ toast('Acres must be a number'); return false; }
+    if(p.proposal_minimum !== null && !(p.proposal_minimum >= 0)){ toast('Minimum must be a number'); return false; }
+    return true;
+  };
+  ['input', 'chips'].forEach(ev => pf.addEventListener(ev, () => showPrice(pf)));
+  showPrice(pf);
+  pf.addEventListener('submit', (e) => { e.preventDefault(); const p = readProp(); if(propOk(p)) updateLead(id, p, 'Proposal saved'); });
+  const ps = $('l-prop-sent');
+  if(ps) ps.addEventListener('click', () => {
+    const p = readProp(); if(!propOk(p)) return;
+    if(!(p.proposal_acres > 0)){ toast('Enter the acres first'); return; }
+    updateLead(id, Object.assign(p, {stage: 'proposal_sent', proposal_sent_on: p.proposal_sent_on || dayOf()}), 'Proposal saved — moved to Proposal sent');
+  });
 
   // log
   const lf = $('l-log');

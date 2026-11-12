@@ -64,6 +64,13 @@ account per client), so HQ does not show user counts.
   on a **New** lead moves it to **Contacted**.
 * Overdue and due-today follow-ups count by the Pacific calendar day; the number
   shows on the Sales tab.
+* **Proposal**: acres, pricing plan and an optional monthly minimum. The price is
+  worked out tier by tier, the same way as client revenue; the estimate is the
+  greater of the plan amount and the minimum. Before a proposal, leads carry a
+  rough estimate from the low end of their acre range (shown as "≈ … (rough)").
+* **Numbers** (all leads, whatever the filters): open leads, pipeline per month,
+  win rate (won ÷ (won + lost)), open leads with no next step, and counts by
+  stage and by source.
 * No lead or contact data is ever written to this repository. Tests use made-up names.
 
 ## Tests
