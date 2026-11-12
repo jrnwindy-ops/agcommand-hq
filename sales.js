@@ -165,7 +165,7 @@ function bars(rows){
   return `<ul class="bars">${rows.map(r =>
     `<li title="${esc(r.label)}: ${r.n} lead${r.n === 1 ? '' : 's'}${r.extra ? ' · ' + esc(r.extra) : ''}">` +
       `<span class="bl">${esc(r.label)}</span>` +
-      `<span class="bt"><span class="bf" style="width:${r.n ? Math.max(2, Math.round(r.n / max * 100)) : 0}%"></span></span>` +
+      `<span class="bt"><span class="bf" data-w="${r.n ? Math.max(2, Math.round(r.n / max * 100)) : 0}"></span></span>` +
       `<span class="bn">${r.n}</span><span class="bx">${esc(r.extra || '')}</span></li>`).join('')}</ul>`;
 }
 function renderNumbers(){
@@ -198,6 +198,8 @@ function renderNumbers(){
     ? `<div class="bd"><h3>By stage</h3>${bars(byStage)}</div><div class="bd"><h3>By source</h3>${bars(bySource)}</div>` +
       `<p class="small muted full">Monthly amounts are estimates: the proposal when there is one, otherwise a rough figure from the low end of the acre range. Win rate counts won ÷ (won + lost).</p>`
     : '<p class="muted">Numbers appear once there are leads.</p>';
+  // Widths are set from script: the site's security policy blocks inline style attributes in markup.
+  $('sales-breakdown').querySelectorAll('.bf[data-w]').forEach(el => { el.style.width = el.dataset.w + '%'; });
 }
 function card(l){
   const due = l.due_state === 'overdue' ? 'due-bad' : l.due_state === 'today' ? 'due-warn' : '';
@@ -313,7 +315,7 @@ async function openLead(id){
     // stage
     `<div class="dsec"><h3>Stage</h3>${chips('stage', STAGES, l.stage, false, true)}` +
       `<div id="l-lost" ${l.stage === 'lost' ? '' : 'hidden'}><p class="small"><b>Why was it lost?</b></p>${chips('lost_reason', LOST, l.lost_reason)}` +
-        `<label class="full" style="margin-top:8px">Note (optional)<input name="lost_note" id="l-lost-note" value="${esc(l.lost_note || '')}"></label>` +
+        `<label class="full mt8">Note (optional)<input name="lost_note" id="l-lost-note" value="${esc(l.lost_note || '')}"></label>` +
         `<div class="actions"><button type="button" class="btn primary" id="l-lost-save">Mark lost</button></div></div></div>` +
     // next step
     `<form class="dsec" id="l-next"><h3>Next step</h3>` +
@@ -327,7 +329,7 @@ async function openLead(id){
       (l.next_step || l.next_step_date ? `<button class="btn ghost" type="button" id="l-next-clear">Clear</button>` : '') + `</div></form>` +
     // log
     `<form class="dsec" id="l-log"><h3>Log what happened</h3>${chips('kind', KINDS, 'call', false, true)}` +
-      `<label class="full" style="margin-top:8px">Notes<textarea name="summary" rows="3" placeholder="What was said, what they asked for" maxlength="4000"></textarea></label>` +
+      `<label class="full mt8">Notes<textarea name="summary" rows="3" placeholder="What was said, what they asked for" maxlength="4000"></textarea></label>` +
       `<div class="form-grid"><label>When<input type="datetime-local" name="happened_at" value="${esc(localInput())}"></label></div>` +
       `<div class="actions"><button class="btn primary" type="submit">Add to log</button></div></form>` +
     // proposal
@@ -349,8 +351,8 @@ function proposalForm(l){
   const plan = l.pricing_plan_id || (plans[0] && plans[0].plan_id) || null;
   const hint = l.acres_range ? `Their acre range: ${ACRE[l.acres_range]}.` : '';
   return `<form class="dsec" id="l-prop"><h3>Proposal</h3>` +
-    (plans.length ? `<p class="lbl" style="margin-top:0">Pricing plan</p>${chips('pricing_plan_id', plans.map(p => [p.plan_id, p.name]), plan, false, true)}` : '<p class="msg">No active pricing plan in HQ.</p>') +
-    `<div class="form-grid" style="margin-top:10px">` +
+    (plans.length ? `<p class="lbl mt0">Pricing plan</p>${chips('pricing_plan_id', plans.map(p => [p.plan_id, p.name]), plan, false, true)}` : '<p class="msg">No active pricing plan in HQ.</p>') +
+    `<div class="form-grid mt10">` +
       `<label>Acres to price<input name="proposal_acres" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_acres ?? '')}" placeholder="e.g. 1,200"></label>` +
       `<label>Monthly minimum ($)<input name="proposal_minimum" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_minimum ?? '')}" placeholder="optional"></label>` +
     `</div>${hint ? `<p class="small muted">${esc(hint)}</p>` : ''}` +
@@ -385,15 +387,15 @@ function detailsForm(l){
     `</div>` +
     `<p class="lbl">Preferred language</p>${chips('language', LANGS, l.language || 'en', false, true)}` +
     `<p class="lbl">Acres</p>${chips('acres_range', ACRES, l.acres_range)}` +
-    `<div class="form-grid" style="margin-top:10px">` +
+    `<div class="form-grid mt10">` +
       `<label>Crops<input name="crops" value="${esc((l.crops || []).join(', '))}" placeholder="e.g. Wine grapes, walnuts" maxlength="300"></label>` +
       `<label>Region<input name="region" value="${esc(l.region || '')}" placeholder="e.g. Fresno County" maxlength="120"></label>` +
     `</div>` +
     `<p class="lbl">Wants help with</p>${chips('interests', INTERESTS, l.interests || [], true)}` +
-    `<label class="full" style="margin-top:8px">In their words<textarea name="interests_note" rows="2" maxlength="2000">${esc(l.interests_note || '')}</textarea></label>` +
-    `<div class="form-grid" style="margin-top:10px"><label class="full">Software they use today<input name="current_software" value="${esc(l.current_software || '')}" maxlength="200"></label></div>` +
+    `<label class="full mt8">In their words<textarea name="interests_note" rows="2" maxlength="2000">${esc(l.interests_note || '')}</textarea></label>` +
+    `<div class="form-grid mt10"><label class="full">Software they use today<input name="current_software" value="${esc(l.current_software || '')}" maxlength="200"></label></div>` +
     `<p class="lbl">How they found us</p>${chips('source', SOURCES, l.source, false, true)}` +
-    `<label class="full" style="margin-top:8px">Source detail<input name="source_detail" value="${esc(l.source_detail || '')}" placeholder="Who referred them, which event…" maxlength="300"></label>` +
+    `<label class="full mt8">Source detail<input name="source_detail" value="${esc(l.source_detail || '')}" placeholder="Who referred them, which event…" maxlength="300"></label>` +
     `<div class="actions"><button class="btn primary" type="submit">Save details</button></div></form>`;
 }
 const val = (form, k) => { const v = (form.elements[k] && form.elements[k].value || '').trim(); return v === '' ? null : v; };
@@ -530,8 +532,8 @@ function openAddLead(pre = {}, web = null){
     `<p class="lbl">Preferred language</p>${chips('language', LANGS, pre.language || 'en', false, true)}` +
     `<p class="lbl">Acres</p>${chips('acres_range', ACRES, pre.acres_range || null)}` +
     `<p class="lbl">Wants help with</p>${chips('interests', INTERESTS, [], true)}` +
-    `<label class="full" style="margin-top:8px">In their words<textarea name="interests_note" rows="3" maxlength="2000">${v('interests_note')}</textarea></label>` +
-    `<div class="form-grid" style="margin-top:10px">` +
+    `<label class="full mt8">In their words<textarea name="interests_note" rows="3" maxlength="2000">${v('interests_note')}</textarea></label>` +
+    `<div class="form-grid mt10">` +
       `<label class="full">Next step<input name="next_step" maxlength="300" placeholder="e.g. Call to book a demo" value="${web ? 'Reach out and thank them for the request' : ''}"></label>` +
       `<label>By<input type="date" name="next_step_date" value="${esc(addDays(dayOf(), web ? 0 : 1))}"></label>` +
     `</div>` +

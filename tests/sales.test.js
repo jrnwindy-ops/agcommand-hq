@@ -5,6 +5,8 @@ const { chromium } = require(process.env.PW || 'playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..'), SUPA = process.env.SUPABASE_JS;
 const HQ = 'https://hqtest.supabase.co';
+// The site's real security policy, from _headers, so anything it would block fails here too.
+const CSP = fs.readFileSync(path.join(ROOT, '_headers'), 'utf8').match(/Content-Security-Policy:\s*(.+)/)[1].trim();
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = () => b64({alg:'HS256',typ:'JWT'}) + '.' + b64({sub:'u1', aal:'aal1', exp: Math.floor(Date.now()/1000)+3600, role:'authenticated', email:'owner@x.com'}) + '.sig';
 const user = {id:'u1', email:'owner@x.com', aud:'authenticated', role:'authenticated'};
@@ -60,9 +62,9 @@ const writes = [];   // [method, path, body]
 
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
-  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript'}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
+  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
   const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
-  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html'}); r.end(fs.readFileSync(f));
+  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
 }).listen(8767);
 
 let fails = 0;
@@ -71,6 +73,9 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
   const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await ctx.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sample || ''))); });
+  const cspSeen = [];
+  const grabCsp = async () => { try { cspSeen.push(...await p.evaluate(() => window.__csp.splice(0))); } catch(e){} };
   let dialogs = 0; p.on('dialog', d => { dialogs++; d.accept(); });
   const CORS = {'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*','content-type':'application/json'};
   const ok = (route, body, status = 200) => route.fulfill({status, headers: CORS, body: JSON.stringify(body)});
@@ -143,6 +148,8 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.click('#sales-numbers summary'); await W();
   const bd = await txt('#sales-breakdown');
   check('by stage and by source', /By stage New 1 \$500\/mo Contacted 0 Demo scheduled 1 \$2,000\/mo Demo done 0 Proposal sent 0 Won 0 Lost 1 By source Website 1 Referral 1 Event 1 0 won · 0% win rate/i.test(bd), bd);
+  const widths = await p.$$eval('#sales-breakdown .bd:first-child .bf', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
+  check('bars sized by count (1 vs 0)', JSON.stringify(widths.map(w => w > 0 ? 1 : 0)) === '[1,0,1,0,0,0,1]' && widths[0] === widths[2] && widths[0] === widths[6], widths);
   await p.click('#f-stage [data-stage="all"]'); await W();
   check('All shows lost lead', (await p.$$('#lead-list [data-lead]')).length === 3);
   await p.click('#f-stage [data-stage="open"]'); await p.click('#followups [data-due="overdue"]'); await W();
@@ -281,7 +288,7 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('list empty, button gone', (await txt('#web-inbox')) === '' && !(await p.$('#fu-web')));
 
   console.log('Phone');
-  await p.setViewportSize({width: 390, height: 844}); await p.reload(); await p.waitForTimeout(1500);
+  await grabCsp(); await p.setViewportSize({width: 390, height: 844}); await p.reload(); await p.waitForTimeout(1500);
   check('reload on #sales opens Sales', await p.isVisible('#tab-sales') && (await p.$$('#lead-list [data-lead]')).length > 0);
   const over = async () => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check('no sideways scroll (list)', (await over()) <= 0, await over());
@@ -295,10 +302,13 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('no sideways scroll (numbers)', (await over()) <= 0, await over());
   await (await p.$('.sales')).screenshot({path: path.join(process.env.SHOTS || '/tmp', 'sales-phone-list.png')});
 
+  await grabCsp();
   console.log('Sign out');
   await p.click('#btn-signout'); await p.waitForTimeout(900);
   check('signed out clears leads', await p.isVisible('#form-signin') && (await p.$$('#lead-list [data-lead]')).length === 0);
 
+  await grabCsp();
+  check('nothing blocked by the security policy', cspSeen.length === 0, cspSeen.slice(0, 5));
   check('no page errors', errs.length === 0, errs);
   console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
   await b.close(); srv.close(); process.exit(fails ? 1 : 0);

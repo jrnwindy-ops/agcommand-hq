@@ -218,7 +218,7 @@ async function openClient(id){
       `<div class="actions"><button class="btn ghost" type="button" id="d-collect"${col ? '' : ' disabled'}>Collect now</button></div></div>`+
     `<div class="dsec"><h3>Collected metrics</h3>`+
       (Object.keys(metrics).length ? `<dl class="kv">${Object.entries(metrics).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(typeof v === 'number' ? num(v, 2) : v)}</dd>`).join('')}</dl>` : '<p class="muted">Nothing collected yet.</p>')+
-      (Object.keys(modules).length ? `<table class="grid lines" style="margin-top:10px"><thead><tr><th>Module</th><th class="n">Total</th><th class="n">30 days</th><th>Last</th></tr></thead><tbody>`+
+      (Object.keys(modules).length ? `<table class="grid lines mt10"><thead><tr><th>Module</th><th class="n">Total</th><th class="n">30 days</th><th>Last</th></tr></thead><tbody>`+
         Object.entries(modules).map(([m, o]) => `<tr><td>${esc(m)}</td><td class="n">${num(o.total)}</td><td class="n">${num(o.last_30d)}</td><td>${esc(when(o.last_at))}</td></tr>`).join('')+`</tbody></table>` : '')+
       `<p class="small muted">Collected ${esc(stamp(snap && snap.collected_at))}. Aggregates only — HQ holds no customer records.</p></div>`+
     `<div class="dsec"><h3>Collection history</h3>`+

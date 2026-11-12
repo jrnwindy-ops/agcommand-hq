@@ -5,6 +5,8 @@ const { chromium } = require(process.env.PW || 'playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..'), SUPA = process.env.SUPABASE_JS;
 const HQ = 'https://hqtest.supabase.co';
+// The site's real security policy, from _headers, so anything it would block fails here too.
+const CSP = fs.readFileSync(path.join(ROOT, '_headers'), 'utf8').match(/Content-Security-Policy:\s*(.+)/)[1].trim();
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (aal) => b64({alg:'HS256',typ:'JWT'}) + '.' + b64({sub:'u1', aal, amr:[{method:'password',timestamp:1}], exp: Math.floor(Date.now()/1000)+3600, role:'authenticated', email:'owner@x.com'}) + '.sig';
 const user = (verified) => ({id:'u1', email:'owner@x.com', aud:'authenticated', role:'authenticated', factors: verified ? [{id:'f1', factor_type:'totp', status:'verified', friendly_name:'AgCommand HQ'}] : []});
@@ -15,14 +17,17 @@ const ROWS = [
 ];
 const srv = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
-  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript'}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
+  if(p === '/config.js'){ r.writeHead(200, {'content-type':'application/javascript', 'content-security-policy': CSP}); return r.end(`window.HQ_CONFIG={url:'${HQ}',key:'sb_publishable_test'};`); }
   const f = path.join(ROOT, p); if(!f.startsWith(ROOT) || !fs.existsSync(f)){ r.writeHead(404); return r.end(); }
-  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html'}); r.end(fs.readFileSync(f));
+  r.writeHead(200, {'content-type': f.endsWith('.js') ? 'application/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html', 'content-security-policy': CSP}); r.end(fs.readFileSync(f));
 }).listen(8766);
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({viewport:{width:1280,height:900}}); const p = await ctx.newPage();
   const errs = [], calls = []; let verified = false, approved = true;
   p.on('pageerror', e => errs.push(e.message));
+  await ctx.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sample || ''))); });
+  const cspSeen = [];
+  const grabCsp = async () => { try { cspSeen.push(...await p.evaluate(() => window.__csp.splice(0))); } catch(e){} };
   const CORS = {'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*','content-type':'application/json'};
   const ok = (route, body, status = 200) => route.fulfill({status, headers: CORS, body: JSON.stringify(body)});
   await ctx.route(/cdn\.jsdelivr\.net/, r => r.fulfill({body: fs.readFileSync(SUPA), contentType: 'application/javascript'}));
@@ -75,11 +80,12 @@ const srv = http.createServer((q, r) => {
   L('5 add toast:', await p.textContent('#toast'));
   L('  calls:', calls.filter(c => !/GET \/rest\/v1\/(tenant_overview|pricing_plans|collections|tenant_snapshots)|rpc\/hq_collector_status|rpc\/hq_account_status|auth\/v1\/user/.test(c)).join(' ; '));
   // reload keeps the verified session
-  await p.reload(); await p.waitForTimeout(1200); L('6 reload → dashboard:', await p.isVisible('#screen-app'));
+  await grabCsp(); await p.reload(); await p.waitForTimeout(1200); L('6 reload → dashboard:', await p.isVisible('#screen-app'));
   // not approved
   approved = false; await p.reload(); await p.waitForTimeout(1200); L('7 not approved → denied:', await p.isVisible('#screen-denied'), 'app hidden:', !(await p.isVisible('#screen-app')));
   await p.click('#btn-denied-out'); await p.waitForTimeout(800); L('8 signed out → sign-in:', await p.isVisible('#form-signin'));
   // phone width
   approved = true; await p.setViewportSize({width: 390, height: 844});
+  L('csp blocked', JSON.stringify(cspSeen));
   L('pageerrors', JSON.stringify(errs)); await b.close(); srv.close();
 })();
