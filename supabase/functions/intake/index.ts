@@ -11,7 +11,7 @@
 // Deployed with JWT verification off: Netlify cannot send a Supabase token,
 // so the signature is the lock.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { shapeSubmission, verifyNetlify } from "./lib.ts";
+import { checkNetlify, shapeSubmission } from "./lib.ts";
 
 const FORMS = new Set(["demo-request"]);
 const MAX_BYTES = 64 * 1024;
@@ -21,7 +21,8 @@ const reply = (status: number, body: unknown) =>
 Deno.serve(async (req) => {
   if (req.method !== "POST") return reply(405, { error: "POST only" });
 
-  const secret = Deno.env.get("NETLIFY_FORM_SECRET") ?? "";
+  // Stray spaces or line breaks from copying the secret are ignored.
+  const secret = (Deno.env.get("NETLIFY_FORM_SECRET") ?? "").trim();
   if (secret.length < 32) return reply(503, { error: "intake not configured" });
 
   const declared = Number(req.headers.get("content-length") ?? "0");
@@ -29,7 +30,9 @@ Deno.serve(async (req) => {
   const raw = await req.text();
   if (raw.length > MAX_BYTES) return reply(413, { error: "too large" });
 
-  if (!(await verifyNetlify(raw, req.headers.get("x-webhook-signature"), secret))) {
+  const check = await checkNetlify(raw, req.headers.get("x-webhook-signature"), secret);
+  if (!check.ok) {
+    console.log(JSON.stringify({ intake: "refused", reason: check.reason }));
     return reply(401, { error: "not authorized" });
   }
 

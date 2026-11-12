@@ -1,7 +1,7 @@
 /* Intake function helpers: Netlify signature check and what is kept.
    Run: node --experimental-strip-types tests/intake.test.mjs  (Node 22+). Exits 1 on failure. */
 import { createHmac, createHash } from 'node:crypto';
-import { verifyNetlify, shapeSubmission } from '../supabase/functions/intake/lib.ts';
+import { verifyNetlify, checkNetlify, shapeSubmission } from '../supabase/functions/intake/lib.ts';
 
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const sign = (body, secret, claims = {}, header = {alg: 'HS256', typ: 'JWT'}) => {
@@ -31,6 +31,11 @@ check('garbage refused', !(await verifyNetlify(body, 'a.b.c', SECRET)) && !(awai
 check('empty secret refused', !(await verifyNetlify(body, sign(body, ''), '')));
 const good = sign(body, SECRET); const flipped = good.slice(0, -2) + (good.endsWith('A') ? 'BB' : 'AA');
 check('altered signature refused', !(await verifyNetlify(body, flipped, SECRET)));
+
+check('reason: wrong secret', (await checkNetlify(body, sign(body, 'another-secret'.padEnd(40, 'y')), SECRET)).reason === 'signature_mismatch_check_secret');
+check('reason: changed body', (await checkNetlify(body + ' ', sign(body, SECRET), SECRET)).reason === 'body_hash_mismatch');
+check('reason: no header', (await checkNetlify(body, null, SECRET)).reason === 'no_signature_header');
+check('reasons never include the secret', !JSON.stringify(await checkNetlify(body, sign(body, 'zz'), SECRET)).includes(SECRET));
 
 console.log('What is kept');
 const row = shapeSubmission(sub);
