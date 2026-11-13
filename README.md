@@ -30,6 +30,7 @@ Supabase project.
 | `supabase/migrations/0004_crm.sql` | Sales CRM: leads (`LD-####`), activity log, website intake |
 | `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
 | `supabase/migrations/0007_sales_role.sql`, `0008` | A Sales-only access level |
+| `supabase/migrations/0009_plan_minimum.sql` | Minimum subscription on the pricing plan |
 | `supabase/functions/collect/index.ts` | The collector |
 | `supabase/functions/intake/` | Website demo requests (Netlify form webhook) → `crm_intake` |
 | `setup/` | One-time configuration and how to connect a client database |
@@ -48,9 +49,15 @@ schema change.
 * A plan's `tiers` are graduated: each rate applies only to the acres inside
   its tier. `ACRE-TIER-2026`: first 4,000 ac at $1.00, next 2,000 at $0.75,
   the rest at $0.50, per month.
+* **Minimum subscription**: `ACRE-TIER-2026` has a minimum of **$1,250 per month
+  ($15,000 per year)** (`pricing_plans.monthly_minimum`). A minimum set on a
+  client, or on a proposal, overrides the plan's.
 * **MRR** counts only clients with status **Active** and a billing start date
-  on or before today, at the greater of the plan amount and the monthly
-  minimum. Others show a projected amount, not counted.
+  on or before today, at the greater of the plan amount and the minimum (the
+  client's own, else the plan's). Others show a projected amount, minimum
+  included, not counted.
+* **Sales estimates** use the same rule: a proposal (or, before one, a rough
+  figure from the low end of the acre range) is never below the minimum.
 * Billable acres are all blocks by default, or planted blocks only, per client.
 
 ## HQ accounts
