@@ -31,6 +31,7 @@ Supabase project.
 | `supabase/migrations/0005`, `0006` | Signed-in accounts get only the privileges the console uses |
 | `supabase/migrations/0007_sales_role.sql`, `0008` | A Sales-only access level |
 | `supabase/migrations/0009_plan_minimum.sql` | Minimum subscription on the pricing plans (applied) |
+| `supabase/migrations/0010_annual_plan.sql` | The Annual per-acre plan ($15 / $12 / $10 per acre per year), recorded |
 | `supabase/functions/collect/index.ts` | The collector |
 | `supabase/functions/intake/` | Website demo requests (Netlify form webhook) → `crm_intake` |
 | `setup/` | One-time configuration and how to connect a client database |
