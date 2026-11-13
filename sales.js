@@ -420,7 +420,7 @@ function proposalForm(l){
     (plans.length ? `<p class="lbl mt0">Pricing plan</p>${chips('pricing_plan_id', plans.map(p => [p.plan_id, p.name]), plan, false, true)}` : '<p class="msg">No active pricing plan in HQ.</p>') +
     `<div class="form-grid mt10">` +
       `<label>Acres to price<input name="proposal_acres" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_acres ?? '')}" placeholder="e.g. 1,200"></label>` +
-      `<label>Monthly minimum ($)<input name="proposal_minimum" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_minimum ?? '')}" placeholder="optional"></label>` +
+      `<label>Monthly minimum ($)<input name="proposal_minimum" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(l.proposal_minimum ?? '')}" placeholder="${planMin(plan) ? 'Plan: ' + esc(money(planMin(plan))) : 'optional'}"></label>` +
     `</div>${hint ? `<p class="small muted">${esc(hint)}</p>` : ''}` +
     `<div id="l-price" class="price" aria-live="polite"></div>` +
     `<div class="form-grid"><label>Proposal sent on<input name="proposal_sent_on" type="date" value="${esc(l.proposal_sent_on || '')}"></label></div>` +
@@ -428,16 +428,25 @@ function proposalForm(l){
       (OPEN.has(l.stage) && l.stage !== 'proposal_sent' ? `<button class="btn ghost" type="button" id="l-prop-sent">Save and mark Proposal sent</button>` : '') +
     `</div></form>`;
 }
+// The plan's minimum per month (the proposal's own minimum overrides it).
+const planMin = (planId) => { const p = activePlans().find(x => x.plan_id === planId); return p && Number(p.monthly_minimum) > 0 ? Number(p.monthly_minimum) : 0; };
 function showPrice(form){
   const plan = activePlans().find(p => p.plan_id === chipValue(form, 'pricing_plan_id'));
-  const acres = Number(form.elements.proposal_acres.value), min = Number(form.elements.proposal_minimum.value || 0);
+  const own = form.elements.proposal_minimum.value.trim();
+  const min = own !== '' ? Number(own) : (plan ? planMin(plan.plan_id) : 0);
+  form.elements.proposal_minimum.placeholder = plan && planMin(plan.plan_id) ? 'Plan: ' + money(planMin(plan.plan_id)) : 'optional';
+  const acres = Number(form.elements.proposal_acres.value);
   const box = $('l-price');
-  if(!plan || !(acres > 0)){ box.innerHTML = '<p class="muted small">Enter acres to see the monthly price.</p>'; return; }
+  if(!plan || !(acres > 0)){
+    box.innerHTML = min ? `<p class="small">Minimum ${money(min, true)} per month (${money(min * 12)} per year). Enter acres to see the full price.</p>`
+                        : '<p class="muted small">Enter acres to see the monthly price.</p>';
+    return;
+  }
   const bd = tierPrice(plan.tiers, acres), est = Math.max(bd.amount, min);
   box.innerHTML = `<table class="lines"><tbody>` +
     bd.lines.map(x => `<tr><td>${num(x.qty, 2)} ac</td><td>× ${money(x.rate, true)}</td><td class="n">${money(x.amount, true)}</td></tr>`).join('') +
     `<tr><td colspan="2">Plan amount</td><td class="n">${money(bd.amount, true)}</td></tr>` +
-    (min ? `<tr><td colspan="2">Monthly minimum</td><td class="n">${money(min, true)}</td></tr>` : '') +
+    (min ? `<tr><td colspan="2">Monthly minimum${own === '' ? ' (plan)' : ''} · ${money(min * 12)}/yr</td><td class="n">${money(min, true)}</td></tr>` : '') +
     `<tr class="tot"><td colspan="2"><b>Estimated monthly</b></td><td class="n"><b>${money(est, true)}</b></td></tr>` +
     `<tr><td colspan="2" class="muted">Per year</td><td class="n muted">${money(est * 12, true)}</td></tr>` +
     `</tbody></table>`;

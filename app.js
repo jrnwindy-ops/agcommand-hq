@@ -132,8 +132,9 @@ function renderToday(){
 }
 function revenueCell(r){
   if(Number(r.mrr) > 0) return money(r.mrr, true);
-  const proj = r.price_breakdown && r.price_breakdown.amount;
-  return proj ? `<span class="muted" title="Not billing yet — what the plan would charge today">${money(proj, true)} proj.</span>` : '—';
+  // What the client would pay per month today, minimum included.
+  const proj = r.projected_monthly;
+  return proj ? `<span class="muted" title="Not billing yet — what the plan would charge today, minimum included">${money(proj, true)} proj.</span>` : '—';
 }
 function renderTable(){
   const tb = document.querySelector('#client-table tbody');
@@ -174,7 +175,7 @@ const FIELDS = [
   ['region','Region','text'], ['notes','Notes','textarea']
 ];
 let PLANS = null;
-async function plans(){ if(PLANS) return PLANS; const {data} = await sb.from('pricing_plans').select('plan_id,name,tiers').eq('active', true); PLANS = data || []; return PLANS; }
+async function plans(){ if(PLANS) return PLANS; const {data} = await sb.from('pricing_plans').select('plan_id,name,tiers,monthly_minimum').eq('active', true); PLANS = data || []; return PLANS; }
 function fieldHtml(f, v){
   const [k, label, type, req, opts] = f;
   const val = v ?? '';
@@ -217,9 +218,12 @@ async function openClient(id){
       (bd.lines && bd.lines.length
         ? `<table class="lines"><tbody>${bd.lines.map(l => `<tr><td>${num(l.qty, 2)} ac</td><td>× ${money(l.rate, true)}</td><td class="n">${money(l.amount, true)}</td></tr>`).join('')}`+
           `<tr><td colspan="2"><b>Plan amount</b></td><td class="n"><b>${money(bd.amount, true)}</b></td></tr>`+
-          (r.monthly_minimum ? `<tr><td colspan="2">Monthly minimum</td><td class="n">${money(r.monthly_minimum, true)}</td></tr>` : '')+
+          (r.effective_minimum ? `<tr><td colspan="2">Monthly minimum${r.monthly_minimum ? '' : ' (plan)'} · ${money(r.effective_minimum * 12)}/yr</td><td class="n">${money(r.effective_minimum, true)}</td></tr>` : '')+
+          (r.projected_monthly ? `<tr><td colspan="2"><b>Monthly amount</b></td><td class="n"><b>${money(r.projected_monthly, true)}</b></td></tr>` : '')+
           `</tbody></table>`
-        : `<p class="muted">No plan or no acres yet.</p>`)+
+        : (r.effective_minimum
+            ? `<p>Monthly minimum${r.monthly_minimum ? '' : ' (plan)'}: <b>${money(r.effective_minimum, true)}</b> (${money(r.effective_minimum * 12)} per year). No acres collected yet.</p>`
+            : `<p class="muted">No plan or no acres yet.</p>`))+
       `<p class="small muted">${Number(r.mrr) > 0 ? 'Counted in MRR: ' + money(r.mrr, true) : 'Not counted in MRR — only Active clients past their billing start date are.'} Billable basis: ${r.billable_basis === 'planted' ? 'planted blocks only' : 'all blocks'}.</p></div>`+
     `<div class="dsec"><h3>System health</h3><dl class="kv">`+
       `<dt>Collector</dt><dd>${col ? (col.enabled ? 'Configured' : 'Disabled') + ' · ' + esc(col.endpoint) : '<span class="muted">Not configured</span>'}</dd>`+

@@ -31,16 +31,18 @@ const LEADS = {
 const ACTS = [{id:1, lead_id:'LD-0001', kind:'stage', happened_at:new Date(Date.now()-3*864e5).toISOString(), detail:{from:null, to:'new'}}];
 const OPEN = ['new','contacted','demo_scheduled','demo_done','proposal_sent'];
 const TIERS = [{up_to:4000, rate:1.00}, {up_to:6000, rate:0.75}, {up_to:null, rate:0.50}];
-const PLANS = [{plan_id:'ACRE-TIER-2026', name:'Per acre per month — graduated', tiers: TIERS}];
+const PLAN_MIN = 1250;
+const PLANS = [{plan_id:'ACRE-TIER-2026', name:'Per acre per month — graduated', tiers: TIERS, monthly_minimum: PLAN_MIN}];
 function tier(qty){   // what hq_tier_breakdown() returns as amount
   let lo = 0, t = 0;
   for(const x of TIERS){ const hi = x.up_to; const n = Math.max(0, Math.min(qty, hi ?? qty) - lo); t += n * x.rate; if(hi === null || qty <= hi) break; lo = hi; }
   return Math.round(t * 100) / 100;
 }
 function estimate(l){   // crm_lead_overview.est_monthly / est_basis
-  if(l.proposal_acres > 0) return [Math.max(tier(l.proposal_acres), l.proposal_minimum || 0), 'proposal'];
+  const min = l.proposal_minimum ?? PLAN_MIN;
+  if(l.proposal_acres > 0) return [Math.max(tier(l.proposal_acres), min), 'proposal'];
   const rough = {'500_2000':500, '2000_5000':2000, '5000_plus':5000}[l.acres_range];
-  return rough ? [tier(rough), 'rough'] : [null, null];
+  return [Math.max(rough ? tier(rough) : 0, min), l.proposal_minimum > 0 ? 'proposal' : 'rough'];
 }
 function overview(){
   return Object.values(LEADS).map(l => {
@@ -149,12 +151,12 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   check('overdue shown in words', (await txt('[data-lead="LD-0001"] .next')).startsWith('2 days overdue'), await txt('[data-lead="LD-0001"] .next'));
   check('company name escaped', await p.$eval('[data-lead="LD-0002"] .co', e => !e.querySelector('img') && e.textContent.includes('<img')));
   check('Spanish speaker marked', (await txt('[data-lead="LD-0002"] .who2')).includes('ES'));
-  check('card shows rough estimate', (await txt('[data-lead="LD-0001"] .facts')).includes('≈ $500/mo (rough)'), await txt('[data-lead="LD-0001"] .facts'));
+  check('card shows rough estimate', (await txt('[data-lead="LD-0001"] .facts')).includes('≈ $1,250/mo (rough)'), await txt('[data-lead="LD-0001"] .facts'));
   const tiles = await txt('#sales-tiles');
-  check('numbers: open, pipeline, win rate, no next step', tiles === 'OPEN LEADS 2 3 new this month PIPELINE PER MONTH $2,500 $0 in proposals sent · 2 rough WIN RATE 0% 0 won · 1 lost NO NEXT STEP 0 Open leads without a follow-up date', tiles);
+  check('numbers: open, pipeline, win rate, no next step', tiles === 'OPEN LEADS 2 3 new this month PIPELINE PER MONTH $3,250 $0 in proposals sent · 2 rough WIN RATE 0% 0 won · 1 lost NO NEXT STEP 0 Open leads without a follow-up date', tiles);
   await p.click('#sales-numbers summary'); await W();
   const bd = await txt('#sales-breakdown');
-  check('by stage and by source', /By stage New 1 \$500\/mo Contacted 0 Demo scheduled 1 \$2,000\/mo Demo done 0 Proposal sent 0 Won 0 Lost 1 By source Website 1 Referral 1 Event 1 0 won · 0% win rate/i.test(bd), bd);
+  check('by stage and by source', /By stage New 1 \$1,250\/mo Contacted 0 Demo scheduled 1 \$2,000\/mo Demo done 0 Proposal sent 0 Won 0 Lost 1 By source Website 1 Referral 1 Event 1 0 won · 0% win rate/i.test(bd), bd);
   const widths = await p.$$eval('#sales-breakdown .bd:first-child .bf', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
   check('bars sized by count (1 vs 0)', JSON.stringify(widths.map(w => w > 0 ? 1 : 0)) === '[1,0,1,0,0,0,1]' && widths[0] === widths[2] && widths[0] === widths[6], widths);
   await p.click('#f-stage [data-stage="all"]'); await W();
@@ -269,6 +271,11 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.click('[data-lead="LD-0002"]'); await W();
   check('plan preselected', await p.$eval('#l-prop .chips[data-group="pricing_plan_id"] [aria-pressed="true"]', e => e.dataset.v) === 'ACRE-TIER-2026');
   check('acre range hint', (await txt('#l-prop')).includes('Their acre range: 2,000–5,000.'));
+  check('minimum shown before acres', (await txt('#l-price')).includes('Minimum $1,250.00 per month ($15,000 per year)'), await txt('#l-price'));
+  check('minimum field shows the plan minimum', (await p.getAttribute('#l-prop [name=proposal_minimum]', 'placeholder')) === 'Plan: $1,250');
+  await p.fill('#l-prop [name=proposal_acres]', '1200'); await W();
+  const pmin = await txt('#l-price');
+  check('small farm: plan minimum applies', pmin.includes('Plan amount $1,200.00') && pmin.includes('Monthly minimum (plan) · $15,000/yr $1,250.00') && pmin.includes('Estimated monthly $1,250.00') && pmin.includes('Per year $15,000.00'), pmin);
   await p.fill('#l-prop [name=proposal_acres]', '6487'); await W();
   const pr = await txt('#l-price');
   check('tier-by-tier price', pr.includes('4,000 ac × $1.00 $4,000.00') && pr.includes('2,000 ac × $0.75 $1,500.00') && pr.includes('487 ac × $0.50 $243.50') && pr.includes('Estimated monthly $5,743.50') && pr.includes('Per year $68,922.00'), pr);
@@ -284,7 +291,7 @@ const check = (name, ok, extra) => { console.log((ok ? '  ok   ' : '  FAIL ') + 
   await p.click('#drawer-close'); await W();
   check('card shows proposal estimate', (await txt('[data-lead="LD-0002"] .facts')).includes('$5,744/mo') && !(await txt('[data-lead="LD-0002"] .facts')).includes('rough'));
   const tiles2 = await txt('#sales-tiles');
-  check('numbers after won + proposal', tiles2.startsWith('OPEN LEADS 3') && tiles2.includes('PIPELINE PER MONTH $5,744 $5,744 in proposals sent') && tiles2.includes('WIN RATE 50% 1 won · 1 lost') && tiles2.includes('NO NEXT STEP 0') && tiles2.includes('5 new this month'), tiles2);
+  check('numbers after won + proposal', tiles2.startsWith('OPEN LEADS 3') && tiles2.includes('PIPELINE PER MONTH $8,244 $5,744 in proposals sent · 2 rough') && tiles2.includes('WIN RATE 50% 1 won · 1 lost') && tiles2.includes('NO NEXT STEP 0') && tiles2.includes('5 new this month'), tiles2);
 
   console.log('From the website');
   const inbox = await txt('#web-inbox');
