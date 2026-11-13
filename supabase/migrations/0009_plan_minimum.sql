@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- AgCommand HQ — a minimum subscription on the pricing plan
 --
--- ACRE-TIER-2026 has a minimum of $1,250 per month ($15,000 per year).
+-- The plans have a minimum of $1,250 per month ($15,000 per year).
 -- Wherever a client or a proposal has no minimum of its own, the plan's
 -- minimum applies: client revenue (MRR) and projected amounts, sales
 -- estimates and proposals. A minimum set on a client or a proposal still
@@ -10,7 +10,7 @@
 
 alter table public.pricing_plans add column if not exists monthly_minimum numeric(12,2)
   check (monthly_minimum is null or monthly_minimum >= 0);
-update public.pricing_plans set monthly_minimum = 1250 where plan_id = 'ACRE-TIER-2026';
+update public.pricing_plans set monthly_minimum = 1250 where plan_id in ('ACRE-TIER-2026', 'ACRE-ANNUAL-2026');
 
 -- ── Clients: revenue and projected amount use the minimum ─────────────────
 -- Same columns as before (0001), plus effective_minimum and projected_monthly
@@ -77,6 +77,7 @@ with base as (
   select l.*, t.display_name as company, t.status as tenant_status, t.region,
          coalesce(pp.tiers, dp.tiers) as tiers,
          coalesce(pp.monthly_minimum, dp.monthly_minimum) as plan_min,
+         coalesce(l.proposal_minimum, pp.monthly_minimum, dp.monthly_minimum) as lead_min,
          case l.acres_range when '500_2000' then 500 when '2000_5000' then 2000 when '5000_plus' then 5000 end as rough_acres,
          (select max(a.happened_at) from public.crm_activities a where a.lead_id = l.lead_id and a.kind <> 'stage') as last_touch_at,
          (now() at time zone 'America/Los_Angeles')::date as today
@@ -92,17 +93,18 @@ select b.lead_id, b.tenant_id, b.company, b.tenant_status, b.region,
        b.proposal_acres, b.pricing_plan_id, b.proposal_minimum, b.proposal_sent_on,
        b.won_at, b.lost_at, b.created_at, b.updated_at, b.last_touch_at,
        public.hq_tier_breakdown(b.tiers, b.proposal_acres) as proposal_breakdown,
-       -- The proposal (or, before one, a rough figure from the low end of the acre
-       -- range), never below the minimum: the proposal's own, else the plan's.
+       -- The proposal's acres (or, before them, a rough figure from the low end of
+       -- the acre range), never below the minimum: the proposal's own, else the plan's.
        case when b.proposal_acres > 0
               then greatest(coalesce((public.hq_tier_breakdown(b.tiers, b.proposal_acres) ->> 'amount')::numeric, 0),
-                            coalesce(b.proposal_minimum, b.plan_min, 0))
-            when b.rough_acres is not null
-              then greatest(coalesce((public.hq_tier_breakdown(b.tiers, b.rough_acres) ->> 'amount')::numeric, 0),
-                            coalesce(b.plan_min, 0))
-            when b.plan_min > 0 then b.plan_min
+                            coalesce(b.lead_min, 0))
+            when b.rough_acres is not null or b.lead_min > 0
+              then nullif(greatest(coalesce((public.hq_tier_breakdown(b.tiers, b.rough_acres) ->> 'amount')::numeric, 0),
+                                   coalesce(b.lead_min, 0)), 0)
        end as est_monthly,
-       case when b.proposal_acres > 0 then 'proposal' when b.rough_acres is not null or b.plan_min > 0 then 'rough' end as est_basis,
+       -- 'proposal' when it rests on proposal acres or a minimum quoted on the proposal.
+       case when b.proposal_acres > 0 or b.proposal_minimum > 0 then 'proposal'
+            when b.rough_acres is not null or b.lead_min > 0 then 'rough' end as est_basis,
        case when b.stage in ('won','lost') or b.next_step_date is null then 'none'
             when b.next_step_date < b.today then 'overdue'
             when b.next_step_date = b.today then 'today'

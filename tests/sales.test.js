@@ -39,9 +39,10 @@ function tier(qty){   // what hq_tier_breakdown() returns as amount
   return Math.round(t * 100) / 100;
 }
 function estimate(l){   // crm_lead_overview.est_monthly / est_basis
-  if(l.proposal_acres > 0) return [Math.max(tier(l.proposal_acres), l.proposal_minimum ?? PLAN_MIN), 'proposal'];
+  const min = l.proposal_minimum ?? PLAN_MIN;
+  if(l.proposal_acres > 0) return [Math.max(tier(l.proposal_acres), min), 'proposal'];
   const rough = {'500_2000':500, '2000_5000':2000, '5000_plus':5000}[l.acres_range];
-  return [Math.max(rough ? tier(rough) : 0, PLAN_MIN), 'rough'];
+  return [Math.max(rough ? tier(rough) : 0, min), l.proposal_minimum > 0 ? 'proposal' : 'rough'];
 }
 function overview(){
   return Object.values(LEADS).map(l => {
